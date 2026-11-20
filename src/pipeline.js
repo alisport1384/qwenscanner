@@ -219,6 +219,8 @@ async function runFetchPhase(scan, env) {
   );
 
   const nowTs = now();
+  let deltaDone = 0;
+  let deltaKb = 0;
 
   for (const page of pages) {
     const { html, status: httpStatus, error: fetchErr } = await fetchPageText(page.url);
@@ -228,7 +230,10 @@ async function runFetchPhase(scan, env) {
       await pageDoneStmt
         .bind(next, httpStatus ?? null, fetchErr || 'empty', 0, nowTs, '', page.id)
         .run();
-      if (next === 'failed') await syncSourceState(env, page.url, 'failed');
+      if (next === 'failed') {
+        deltaDone++;
+        await syncSourceState(env, page.url, 'failed');
+      }
       continue;
     }
 
@@ -239,6 +244,7 @@ async function runFetchPhase(scan, env) {
       await pageDoneStmt
         .bind('skipped', httpStatus, 'too_short', text.length, nowTs, title, page.id)
         .run();
+      deltaDone++;
       continue;
     }
 
@@ -295,6 +301,7 @@ async function runFetchPhase(scan, env) {
       await pageDoneStmt
         .bind('skipped', httpStatus, 'no_items', text.length, nowTs, title, page.id)
         .run();
+      deltaDone++;
       continue;
     }
 
@@ -310,25 +317,23 @@ async function runFetchPhase(scan, env) {
       pageDoneStmt.bind('done', httpStatus, null, text.length, nowTs, title, page.id)
     );
     await env.DB.batch(kb);
+    deltaDone++;
+    deltaKb += items.length;
     await syncSourceState(env, page.url, 'done');
   }
 
-  const totals = await env.DB.prepare(
-    `SELECT
-       (SELECT COUNT(*) FROM pages WHERE scan_id = ?1) AS total,
-       (SELECT COUNT(*) FROM pages WHERE scan_id = ?1
-          AND status IN ('done','skipped','failed')) AS done,
-       (SELECT COUNT(*) FROM knowledge WHERE scan_id = ?1) AS kc`
-  )
-    .bind(scan.id)
-    .first();
-
-  await env.DB.prepare(
-    `UPDATE scans SET pages_total = ?1, pages_done = ?2, knowledge_count = ?3, updated_at = ?4
-     WHERE id = ?5`
-  )
-    .bind(totals?.total || 0, totals?.done || 0, totals?.kc || 0, nowTs, scan.id)
-    .run();
+  // Incremental progress — the old per-step 3xCOUNT scanned thousands of rows
+  // every fetch step (top cause of the D1 daily read-limit blowout).
+  // Exact totals run once in the finalize branch above (empty claim).
+  if (deltaDone > 0 || deltaKb > 0) {
+    await env.DB.prepare(
+      `UPDATE scans SET pages_done = pages_done + ?1, knowledge_count = knowledge_count + ?2,
+         updated_at = ?3
+       WHERE id = ?4`
+    )
+      .bind(deltaDone, deltaKb, nowTs, scan.id)
+      .run();
+  }
 }
 
 
@@ -374,7 +379,8 @@ export async function requeueDueScans(env) {
   const t = now();
   const due = await env.DB.prepare(
     `UPDATE scans
-     SET status = 'queued', phase = 'search', error = NULL, updated_at = ?1,
+     SET status = 'queued', phase = 'search', error = NULL,
+         pages_done = 0, knowledge_count = 0, updated_at = ?1,
          next_refresh_at = ?1 + refresh_hours * 3600000
      WHERE auto_refresh = 1 AND status IN ('done','failed')
        AND next_refresh_at IS NOT NULL AND next_refresh_at <= ?1

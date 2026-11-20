@@ -470,7 +470,7 @@ $('scansList').addEventListener('click', async (ev) => {
     } else if (btn.dataset.act === 'refresh') {
       await api('/api/scans/' + id + '/refresh', { method: 'POST' });
       toast('بروزرسانی شروع شد…');
-      pollMs = 2000;
+      pollMs = 10000;
     }
     await refreshAll();
   } catch (e) {
@@ -624,17 +624,17 @@ $('saveRetention').addEventListener('click', async () => {
 });
 
 // poll every 4s while any scan active, else 12s
-let pollMs = 4000;
+let pollMs = 15000;
 async function tick() {
   await refreshAll();
   const active = $('stActive')?.textContent;
-  pollMs = (active && active !== '0' && active !== '—') ? 4000 : 12000;
+  pollMs = (active && active !== '0' && active !== '—') ? 15000 : 45000;
   setTimeout(tick, pollMs);
 }
 
 refreshAll();
 loadUsage();
-setTimeout(tick, 4000);
+setTimeout(tick, 15000);
 </script>
 </body>
 </html>

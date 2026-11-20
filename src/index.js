@@ -6,11 +6,36 @@ import { renderReportPage, renderBatchReportPage, renderAllReportPage, renderSou
 import { ensureSchema } from './schema.js';
 import { runFinderRound } from './finder.js';
 import { ensureIronPinSeed } from './seed.js';
+import { getRowsReadFresh } from './usage.js';
 
 const HTML_HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
   'X-Content-Type-Options': 'nosniff',
 };
+
+/** Edge-cache public report GETs 120s — skipped when AUTH_TOKEN set (private). */
+async function cachedGet(request, env, ctx, fn) {
+  const cacheable = request.method === 'GET' && !env.AUTH_TOKEN;
+  if (!cacheable) return await fn();
+  try {
+    const hit = await caches.default.match(request);
+    if (hit) return hit;
+  } catch {
+    /* ignore */
+  }
+  const res = await fn();
+  try {
+    if (res && res.ok) {
+      const clone = res.clone();
+      const p = caches.default.put(request, clone, { expirationTtl: 120 });
+      if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(p.catch(() => {}));
+      else await p.catch(() => {});
+    }
+  } catch {
+    /* ignore */
+  }
+  return res;
+}
 
 async function runScheduledWork(env, cron) {
   await ensureSchema(env);
@@ -21,6 +46,20 @@ async function runScheduledWork(env, cron) {
     console.error('ironpin seed failed', e);
   }
   // Price retention is MANUAL-ONLY (user command) — no auto purge.
+
+  // D1 read-budget guard: near/over the free-tier daily cap → skip heavy work.
+  try {
+    const rowsRead = await getRowsReadFresh(env);
+    if (rowsRead != null && rowsRead > 4_500_000) {
+      console.warn(
+        'read-budget guard: rows_read=' + rowsRead + ' — skipping finder/drain/requeue'
+      );
+      return;
+    }
+  } catch (e) {
+    console.error('read-budget guard failed', e);
+  }
+
   if (cron === '0 */6 * * *') {
     await requeueDueScans(env);
   }
@@ -78,24 +117,23 @@ const worker = {
       }
 
       if (path.startsWith('/api/')) {
+        if (method === 'GET' && (path === '/api/report/all' || path === '/api/sources')) {
+          return await cachedGet(request, env, ctx, () => handleApi(request, env, ctx));
+        }
         return await handleApi(request, env, ctx);
       }
 
-      if (path.startsWith('/report/batch/')) {
-        const id = decodeURIComponent(path.split('/')[3] || '');
-        return await renderBatchReportPage(id, env);
-      }
-
-      if (path === '/report/all') {
-        return await renderAllReportPage(env);
-      }
-      if (path === '/report/sources') {
-        return await renderSourcesPage(env);
-      }
-
       if (path.startsWith('/report/')) {
-        const id = decodeURIComponent(path.split('/')[2] || '');
-        return await renderReportPage(id, env);
+        return await cachedGet(request, env, ctx, async () => {
+          if (path.startsWith('/report/batch/')) {
+            const id = decodeURIComponent(path.split('/')[3] || '');
+            return await renderBatchReportPage(id, env);
+          }
+          if (path === '/report/all') return await renderAllReportPage(env);
+          if (path === '/report/sources') return await renderSourcesPage(env);
+          const id = decodeURIComponent(path.split('/')[2] || '');
+          return await renderReportPage(id, env);
+        });
       }
 
       return env.ASSETS.fetch(request);

@@ -189,3 +189,44 @@ async function estimateBytes(env) {
 export async function getUsage(env, { now = Date.now() } = {}) {
   return refreshUsage(env, { now, force: false });
 }
+
+/**
+ * Cheap today-rows-read for the cron read-budget guard:
+ * 1 meta row read; refreshes via GraphQL (free, not D1) when older than maxAgeMs.
+ * Never runs table COUNTs — safe to call every tick. Returns null when unknown.
+ */
+export async function getRowsReadFresh(env, { now = Date.now(), maxAgeMs = 30 * 60_000 } = {}) {
+  const date = todayKey(now);
+  let v = null;
+  try {
+    const row = await env.DB.prepare('SELECT value FROM meta WHERE key = ?1')
+      .bind('usage_daily')
+      .first();
+    if (row?.value) v = JSON.parse(row.value);
+  } catch {
+    /* over quota / missing */
+  }
+  if (
+    v &&
+    v.date === date &&
+    typeof v.rows_read === 'number' &&
+    now - (v.updated_at || 0) < maxAgeMs
+  ) {
+    return v.rows_read;
+  }
+  const a = await fetchD1Analytics(env, date); // GraphQL — free
+  if (a && typeof a.rowsRead === 'number') {
+    if (v && v.date === date) {
+      v.rows_read = a.rowsRead;
+      v.rows_written = a.rowsWritten;
+      v.updated_at = now;
+      try {
+        await setMeta(env, 'usage_daily', JSON.stringify(v));
+      } catch {
+        /* ignore */
+      }
+    }
+    return a.rowsRead;
+  }
+  return v && v.date === date && typeof v.rows_read === 'number' ? v.rows_read : null;
+}

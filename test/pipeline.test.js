@@ -201,6 +201,16 @@ function makeDb() {
       if (r) Object.assign(r, { pages_total, pages_done, knowledge_count, updated_at });
       return;
     }
+    if (/UPDATE scans SET pages_done = pages_done \+ \?1/.test(sql)) {
+      const [deltaDone, deltaKb, updated_at, id] = p;
+      const r = tables.scans.find((x) => x.id === id);
+      if (r) {
+        r.pages_done = (r.pages_done || 0) + deltaDone;
+        r.knowledge_count = (r.knowledge_count || 0) + deltaKb;
+        r.updated_at = updated_at;
+      }
+      return;
+    }
     if (/UPDATE pages SET status = 'pending', claimed_at = NULL\s+WHERE status = 'claimed'/.test(sql)) {
       const cutoff = p[0];
       for (const r of tables.pages) {
@@ -221,6 +231,7 @@ function makeDb() {
           r.next_refresh_at <= t
         ) {
           r.status = 'queued'; r.phase = 'search'; r.error = null;
+          r.pages_done = 0; r.knowledge_count = 0;
           r.updated_at = t;
           r.next_refresh_at = t + r.refresh_hours * 3600000;
           ids.push({ id: r.id });

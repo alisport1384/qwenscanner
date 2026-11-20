@@ -93,6 +93,8 @@ CREATE INDEX IF NOT EXISTS idx_pages_claimed ON pages (status, claimed_at);
 CREATE INDEX IF NOT EXISTS idx_knowledge_scan ON knowledge (scan_id, kind);
 CREATE INDEX IF NOT EXISTS idx_knowledge_attr ON knowledge (attribute, last_verified_at);
 CREATE INDEX IF NOT EXISTS idx_sources_part ON sources (part, kind);
+CREATE INDEX IF NOT EXISTS idx_pages_url ON pages (url);
+CREATE INDEX IF NOT EXISTS idx_sources_url ON sources (url);
 `;
 
 // One-shot migration for DBs created before batches / sources existed
@@ -117,6 +119,8 @@ const MIGRATIONS = [
   'CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)',
   'CREATE INDEX IF NOT EXISTS idx_knowledge_attr ON knowledge (attribute, last_verified_at)',
   'CREATE INDEX IF NOT EXISTS idx_sources_part ON sources (part, kind)',
+  'CREATE INDEX IF NOT EXISTS idx_pages_url ON pages (url)',
+  'CREATE INDEX IF NOT EXISTS idx_sources_url ON sources (url)',
 ];
 
 let ensured = false;

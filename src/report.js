@@ -234,7 +234,7 @@ async function copyJson() {
 </script>`;
 
   return new Response(pageShell('گزارش — ' + scan.topic, body, script), {
-    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=60' },
   });
 }
 
@@ -355,7 +355,7 @@ async function copyJson() {
 </script>`;
 
   return new Response(pageShell('لیست — ' + (batch.title || topics[0] || 'گزارش'), body, script), {
-    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=60' },
   });
 }
 
@@ -372,10 +372,9 @@ export async function renderAllReportPage(env) {
        LIMIT 5000`
     ).all();
     items = rows.results || [];
-    const t = await env.DB.prepare('SELECT COUNT(DISTINCT topic) AS c FROM knowledge').first();
-    topics = t?.c || 0;
-    const d = await env.DB.prepare('SELECT COUNT(DISTINCT domain) AS c FROM knowledge').first();
-    domains = d?.c || 0;
+    // Distinct counts from fetched rows — full-table COUNT(DISTINCT) burned D1 reads.
+    topics = new Set(items.map((i) => i.topic).filter((x) => x != null)).size;
+    domains = new Set(items.map((i) => i.domain).filter((x) => x != null)).size;
   } catch {
     items = [];
   }
@@ -416,7 +415,7 @@ async function copyJson() {
 </script>`;
 
   return new Response(pageShell('کل دانش — Qwen Scanner', body, script), {
-    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=60' },
   });
 }
 
@@ -468,6 +467,6 @@ export async function renderSourcesPage(env) {
   <footer>لینک پایدار <code>/report/sources</code> · API <code>/api/sources</code></footer>`;
 
   return new Response(pageShell('فهرست منابع — Qwen Scanner', body), {
-    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=60' },
   });
 }

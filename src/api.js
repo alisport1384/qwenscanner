@@ -15,13 +15,54 @@ function json(data, status = 200) {
     status,
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store',
     },
   });
 }
 
 export function errorJson(message, status = 400) {
   return json({ error: message }, status);
+}
+
+// ─── Panel payload caches (meta-backed, invalidated on writes) ───
+// /api/stats + /api/batches were the top D1 row-read burners: the panel polled
+// them every 4-12s and each hit ran 8 COUNTs / 50x4 correlated subqueries.
+const CACHE_TTL_MS = 300_000; // 5 min — totals only, mutations bust explicitly
+
+async function readCache(env, key) {
+  try {
+    const row = await env.DB.prepare('SELECT value FROM meta WHERE key = ?1')
+      .bind(key)
+      .first();
+    if (!row?.value) return null;
+    const v = JSON.parse(row.value);
+    if (v && typeof v.exp === 'number' && v.exp > Date.now()) return v.data;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+async function writeCache(env, key, data) {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO meta (key, value, updated_at) VALUES (?1, ?2, ?3)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+    )
+      .bind(key, JSON.stringify({ exp: Date.now() + CACHE_TTL_MS, data }), Date.now())
+      .run();
+  } catch {
+    /* ignore */
+  }
+}
+
+async function bustCaches(env) {
+  try {
+    await env.DB.prepare(
+      `DELETE FROM meta WHERE key IN ('stats_cache','batches_cache')`
+    ).run();
+  } catch {
+    /* ignore */
+  }
 }
 
 function checkAuth(request, url, env) {
@@ -119,6 +160,7 @@ export async function handleApi(request, env, ctx) {
       stmts.push(insertScan.bind(sid, batchId, topic, autoRefresh, refreshHours, nextRefresh, t));
     }
     await env.DB.batch(stmts);
+    await bustCaches(env);
 
     const batch = await getBatch(env, batchId);
     return json(
@@ -134,6 +176,8 @@ export async function handleApi(request, env, ctx) {
   }
 
   if (method === 'GET' && path === '/api/batches') {
+    const cachedBatches = await readCache(env, 'batches_cache');
+    if (cachedBatches) return json(cachedBatches);
     const rows = await env.DB.prepare(
       `SELECT b.id, b.title, b.topics_count, b.created_at, b.updated_at,
               (SELECT COUNT(*) FROM scans s WHERE s.batch_id = b.id) AS scans_total,
@@ -145,7 +189,9 @@ export async function handleApi(request, env, ctx) {
        ORDER BY b.created_at DESC
        LIMIT 50`
     ).all();
-    return json({ ok: true, batches: rows.results || [] });
+    const out = { ok: true, batches: rows.results || [] };
+    await writeCache(env, 'batches_cache', out);
+    return json(out);
   }
 
   if (method === 'GET' && /^\/api\/batches\/[^/]+$/.test(path)) {
@@ -182,6 +228,7 @@ export async function handleApi(request, env, ctx) {
     }
     stmts.push(env.DB.prepare('DELETE FROM batches WHERE id = ?1').bind(id));
     await env.DB.batch(stmts);
+    await bustCaches(env);
     return json({ ok: true, deleted_scans: scanIds.length });
   }
 
@@ -241,6 +288,7 @@ export async function handleApi(request, env, ctx) {
     )
       .bind(id, topic, autoRefresh, refreshHours, autoRefresh ? t + refreshHours * 3600_000 : null, t)
       .run();
+    await bustCaches(env);
 
     const scan = await getScan(env, id);
     return json({ ok: true, scan, report_url: '/report/' + id, api_url: '/api/report/' + id }, 201);
@@ -296,6 +344,7 @@ export async function handleApi(request, env, ctx) {
       env.DB.prepare('DELETE FROM pages WHERE scan_id = ?1').bind(id),
       env.DB.prepare('DELETE FROM scans WHERE id = ?1').bind(id),
     ]);
+    await bustCaches(env);
     return json({ ok: true });
   }
 
@@ -314,6 +363,7 @@ export async function handleApi(request, env, ctx) {
          WHERE scan_id = ?1`
       ).bind(id),
     ]);
+    await bustCaches(env);
     // Start processing immediately (prioritize this scan), don't wait for cron.
     const work = drainQueue(env, { maxSteps: 40, prioritizeId: id }).catch((e) => {
       console.error('refresh drain failed', e);
@@ -343,6 +393,7 @@ export async function handleApi(request, env, ctx) {
     if (body?.retention_cycle_days !== undefined) {
       try {
         await setRetentionCycleDays(env, body.retention_cycle_days);
+        await bustCaches(env);
       } catch (e) {
         return errorJson(String(e?.message || e));
       }
@@ -365,20 +416,10 @@ export async function handleApi(request, env, ctx) {
     } catch {
       items = [];
     }
-    let topics = 0;
-    let sources = 0;
-    let categories = 0;
-    try {
-      topics =
-        (await env.DB.prepare('SELECT COUNT(DISTINCT topic) AS c FROM knowledge').first())?.c || 0;
-      sources =
-        (await env.DB.prepare('SELECT COUNT(DISTINCT domain) AS c FROM knowledge').first())?.c || 0;
-      categories =
-        (await env.DB.prepare('SELECT COUNT(DISTINCT category) AS c FROM knowledge').first())?.c ||
-        0;
-    } catch {
-      /* ignore */
-    }
+    // Distinct counts from fetched rows — full-table COUNT(DISTINCT) burned D1 reads.
+    const topics = new Set(items.map((i) => i.topic).filter((x) => x != null)).size;
+    const sources = new Set(items.map((i) => i.domain).filter((x) => x != null)).size;
+    const categories = new Set(items.map((i) => i.category).filter((x) => x != null)).size;
     return json(
       toQwenAllExport(items, { topics, sources, categories })
     );
@@ -460,6 +501,8 @@ export async function handleApi(request, env, ctx) {
   }
 
   if (method === 'GET' && path === '/api/stats') {
+    const cachedStats = await readCache(env, 'stats_cache');
+    if (cachedStats) return json(cachedStats);
     const [scans, knowledge, pages, active, batches, sources, retention, finder] =
       await Promise.all([
         env.DB.prepare('SELECT COUNT(*) AS c FROM scans').first(),
@@ -485,7 +528,7 @@ export async function handleApi(request, env, ctx) {
     try {
       finderState = finder?.value ? JSON.parse(finder.value) : null;
     } catch { /* ignore */ }
-    return json({
+    const out = {
       ok: true,
       scans: scans?.c || 0,
       knowledge: knowledge?.c || 0,
@@ -516,7 +559,9 @@ export async function handleApi(request, env, ctx) {
           sources_json: '/api/sources',
         },
       },
-    });
+    };
+    await writeCache(env, 'stats_cache', out);
+    return json(out);
   }
 
   if (method === 'GET' && path === '/api/health') {
