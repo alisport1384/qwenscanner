@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>اسکنر Qwen — پنل</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #0d1117; --panel: #161b22; --border: #30363d; --text: #e6edf3;
+  --muted: #8b949e; --accent: #58a6ff; --green: #3fb950; --red: #f85149;
+  --amber: #d29922; --purple: #bc8cff;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 20px 16px 40px; font-family: Vazirmatn, Tahoma, "Segoe UI", sans-serif;
+  background: var(--bg); color: var(--text); line-height: 1.7;
+}
+.wrap { max-width: 960px; margin: 0 auto; }
+header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+h1 { font-size: 1.35rem; margin: 0; }
+h1 span { color: var(--accent); }
+.health { font-size: .8rem; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; }
+.dot.down { background: var(--red); }
+
+.card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 18px; margin-bottom: 16px;
+}
+.card h2 { font-size: 1rem; margin: 0 0 12px; color: var(--muted); font-weight: 600; }
+
+/* stats */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.stat {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px; text-align: center;
+}
+.stat .num { font-size: 1.4rem; font-weight: 700; color: var(--accent); }
+.stat .lbl { font-size: .75rem; color: var(--muted); }
+
+/* form */
+form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
+.field { flex: 1 1 280px; display: flex; flex-direction: column; gap: 6px; }
+label { font-size: .82rem; color: var(--muted); }
+input[type="text"], input[type="number"], select {
+  width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); font-size: .95rem; font-family: inherit;
+}
+input:focus, select:focus { outline: none; border-color: var(--accent); }
+.row { display: flex; flex-wrap: wrap; gap: 10px; width: 100%; }
+.row .field { flex: 1 1 140px; }
+.check { display: flex; align-items: center; gap: 8px; font-size: .88rem; color: var(--muted); margin-top: 4px; }
+button {
+  padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer;
+  font-size: .95rem; font-family: inherit; font-weight: 600;
+}
+.btn-primary { background: var(--green); color: #fff; }
+.btn-primary:hover { filter: brightness(1.1); }
+.btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+.btn-ghost {
+  background: transparent; color: var(--accent); border: 1px solid var(--border);
+  padding: 6px 12px; font-size: .82rem;
+}
+.btn-ghost:hover { border-color: var(--accent); }
+.btn-danger { background: transparent; color: var(--red); border: 1px solid var(--border); padding: 6px 12px; font-size: .82rem; }
+.btn-danger:hover { border-color: var(--red); }
+
+/* scans table */
+.scans { display: flex; flex-direction: column; gap: 10px; }
+.scan {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+  justify-content: space-between;
+}
+.scan .info { flex: 1 1 240px; min-width: 0; }
+.scan .topic { font-weight: 700; font-size: .98rem; word-break: break-word; }
+.scan .sub { font-size: .78rem; color: var(--muted); margin-top: 4px; display: flex; flex-wrap: wrap; gap: 10px; }
+.badge {
+  display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .75rem;
+  background: var(--border); color: var(--text);
+}
+.badge.queued, .badge.searching { background: #d2992233; color: var(--amber); }
+.badge.fetching { background: #58a6ff22; color: var(--accent); }
+.badge.done { background: #3fb95022; color: var(--green); }
+.badge.failed { background: #f8514922; color: var(--red); }
+.progress {
+  height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;
+  margin-top: 8px; max-width: 280px;
+}
+.progress i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+.scan .actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.scan .actions a, .scan .actions button { text-decoration: none; }
+
+/* settings / db */
+.db-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; font-size: .85rem; }
+.db-grid div { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.db-grid .k { color: var(--muted); font-size: .75rem; }
+.db-grid .v { font-family: monospace; color: var(--purple); word-break: break-all; margin-top: 2px; }
+
+/* toast */
+#toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: var(--panel); border: 1px solid var(--border); color: var(--text);
+  padding: 10px 20px; border-radius: 8px; font-size: .9rem; opacity: 0;
+  pointer-events: none; transition: opacity .3s; z-index: 50; max-width: 90vw;
+}
+#toast.show { opacity: 1; }
+#toast.err { border-color: var(--red); color: var(--red); }
+
+.empty { color: var(--muted); text-align: center; padding: 24px 0; font-size: .9rem; }
+footer { text-align: center; color: #484f58; font-size: .75rem; margin-top: 24px; }
+code { background: var(--panel); padding: 1px 6px; border-radius: 4px; font-size: .85em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🔍 اسکنر <span>Qwen</span> — وب → دیتابیس</h1>
+    <div class="health"><span class="dot" id="healthDot"></span><span id="healthTxt">در حال اتصال…</span></div>
+  </header>
+
+  <!-- stats -->
+  <div class="card">
+    <h2>آمار دیتابیس</h2>
+    <div class="stats">
+      <div class="stat"><div class="num" id="stScans">—</div><div class="lbl">اسکن</div></div>
+      <div class="stat"><div class="num" id="stActive">—</div><div class="lbl">فعال</div></div>
+      <div class="stat"><div class="num" id="stPages">—</div><div class="lbl">صفحه</div></div>
+      <div class="stat"><div class="num" id="stKnowledge">—</div><div class="lbl">آیتم دانش</div></div>
+      <div class="stat"><div class="num" id="stBatches">—</div><div class="lbl">لیست</div></div>
+      <div class="stat"><div class="num" id="stSources">—</div><div class="lbl">منابع</div></div>
+    </div>
+  </div>
+
+  <!-- permanent links -->
+  <div class="card">
+    <h2>لینک‌های پایدار</h2>
+    <div class="row" style="gap:10px;flex-wrap:wrap">
+      <a class="btn-ghost" href="/report/all" target="_blank" style="text-decoration:none;padding:8px 14px;border:1px solid var(--border);border-radius:8px">📚 کل دانش (زنده)</a>
+      <a class="btn-ghost" href="/api/report/all" target="_blank" style="text-decoration:none;padding:8px 14px;border:1px solid var(--border);border-radius:8px">JSON کل دانش</a>
+      <a class="btn-ghost" href="/report/sources" target="_blank" style="text-decoration:none;padding:8px 14px;border:1px solid var(--border);border-radius:8px">🔗 فهرست منابع (برای IronPin)</a>
+      <a class="btn-ghost" href="/api/sources" target="_blank" style="text-decoration:none;padding:8px 14px;border:1px solid var(--border);border-radius:8px">JSON منابع</a>
+    </div>
+    <div class="sub" style="margin-top:10px">هر منبع/دستهٔ جدید خودکار داخل «کل دانش» می‌آید.</div>
+  </div>
+
+  <!-- new scan (single) -->
+  <div class="card">
+    <h2>اسکن جدید (تکی)</h2>
+    <form id="scanForm">
+      <div class="field">
+        <label for="topic">موضوع جستجو (از سطح وب)</label>
+        <input type="text" id="topic" name="topic" placeholder="مثلاً: قیمت ورق گالوانیزه 0.5" maxlength="200" required autocomplete="off">
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="refreshHours">بازه اسکن خودکار (ساعت)</label>
+          <input type="number" id="refreshHours" value="24" min="1" max="720">
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <div class="check">
+            <input type="checkbox" id="autoRefresh" checked>
+            <label for="autoRefresh" style="margin:0">اسکن خودکار در نبود من (cron)</label>
+          </div>
+        </div>
+      </div>
+      <div class="field" style="flex:0 0 auto">
+        <label>&nbsp;</label>
+        <button type="submit" class="btn-primary" id="submitBtn">▶ شروع اسکن</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- list / batch scan -->
+  <div class="card">
+    <h2>اسکن لیستی — هر خط یک موضوع ← یک لینک گزارش</h2>
+    <form id="batchForm">
+      <div class="field">
+        <label for="batchTitle">عنوان لیست (اختیاری)</label>
+        <input type="text" id="batchTitle" placeholder="مثلاً: قیمت مقاطع فولادی" maxlength="120" autocomplete="off">
+      </div>
+      <div class="field" style="margin-top:8px">
+        <label for="batchTopics">موضوعات — هر خط یک موضوع (حداکثر ۵۰)</label>
+        <textarea id="batchTopics" rows="6" placeholder="قیمت تیرآهن&#10;قیمت میلگرد&#10;قیمت ورق گالوانیزه&#10;قیمت پروفیل" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.95rem;font-family:inherit;resize:vertical" required></textarea>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div class="field">
+          <label for="batchRefreshHours">بازه اسکن خودکار (ساعت)</label>
+          <input type="number" id="batchRefreshHours" value="24" min="1" max="720">
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <div class="check">
+            <input type="checkbox" id="batchAutoRefresh" checked>
+            <label for="batchAutoRefresh" style="margin:0">اسکن خودکار (cron)</label>
+          </div>
+        </div>
+        <div class="field" style="flex:0 0 auto">
+          <label>&nbsp;</label>
+          <button type="submit" class="btn-primary" id="batchSubmitBtn">▶ شروع لیست</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- batches -->
+  <div class="card">
+    <h2>لیست‌ها <span style="color:var(--muted);font-weight:400;font-size:.8rem">(یک لینک برای کل لیست)</span></h2>
+    <div class="scans" id="batchesList"><div class="empty">در حال بارگذاری…</div></div>
+  </div>
+
+  <!-- scans -->
+  <div class="card">
+    <h2>فهرست اسکن‌ها <span id="autoTag" style="color:var(--muted);font-weight:400;font-size:.8rem">(به‌روزرسانی خودکار)</span></h2>
+    <div class="scans" id="scansList"><div class="empty">در حال بارگذاری…</div></div>
+  </div>
+
+  <!-- db settings -->
+  <div class="card">
+    <h2>تنظیمات دیتابیس و موتور</h2>
+    <div class="db-grid" id="dbGrid">
+      <div><div class="k">D1 Database</div><div class="v" id="dbName">—</div></div>
+      <div><div class="k">فرمت ذخیره</div><div class="v">qwen-knowledge-v1</div></div>
+      <div><div class="k">چانک</div><div class="v" id="chunkCfg">—</div></div>
+      <div><div class="k">TTL</div><div class="v" id="ttlCfg">—</div></div>
+      <div><div class="k">موتورهای جستجو</div><div class="v" id="enginesCfg">—</div></div>
+      <div><div class="k">Cron</div><div class="v" id="cronsCfg">—</div></div>
+      <div><div class="k">نگهداری قیمت</div><div class="v" id="retentionCfg">—</div></div>
+      <div><div class="k">جستجوگر ۲</div><div class="v" id="finderCfg">—</div></div>
+    </div>
+    <div class="row" style="margin-top:14px;align-items:flex-end">
+      <div class="field">
+        <label for="retentionDays">چرخه پاک‌سازی قیمت (روز) — پیش‌فرض ۳۱</label>
+        <input type="number" id="retentionDays" value="31" min="1" max="3650">
+      </div>
+      <div class="field" style="flex:0 0 auto">
+        <label>&nbsp;</label>
+        <button type="button" class="btn-primary" id="saveRetention">ذخیره چرخه</button>
+      </div>
+    </div>
+
+    <!-- CF / D1 usage -->
+    <div class="row" style="margin-top:16px;align-items:flex-end">
+      <div class="field" style="flex:1">
+        <label>مصرف روزانه Cloudflare / D1</label>
+        <div id="usageBox" class="sub" style="margin:0">در حال دریافت…</div>
+      </div>
+      <div class="field" style="flex:0 0 auto">
+        <label>&nbsp;</label>
+        <button type="button" class="btn-ghost" id="refreshUsage" style="padding:8px 14px;border:1px solid var(--border);border-radius:8px">🔄 به‌روز مصرف</button>
+      </div>
+    </div>
+
+    <!-- MANUAL price delete only -->
+    <div class="row" style="margin-top:16px;align-items:flex-end;border-top:1px solid var(--border);padding-top:14px">
+      <div class="field">
+        <label for="priceDeleteDays">حذف دستی قیمت‌های قدیمی (روز) — فقط قیمت، نه دانش فنی</label>
+        <input type="number" id="priceDeleteDays" value="31" min="1" max="3650">
+      </div>
+      <div class="field" style="flex:0 0 auto">
+        <label>&nbsp;</label>
+        <button type="button" class="btn-danger" id="deletePrices">🗑 حذف فقط قیمت‌ها</button>
+      </div>
+    </div>
+    <div class="sub" style="margin-top:8px">حذف خودکار غیرفعال است — فقط با این دکمه اجرا می‌شود. اطلاعات توضیحی و دانش فنی هرگز پاک نمی‌شود.</div>
+  </div>
+
+  <footer>
+    ذخیره‌سازی: Cloudflare D1 · اجرا: Cron Triggers · فرمت: قابل فهم Qwen (چانک ۹۰۰ حرف + متادیتا)
+  </footer>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function toast(msg, isErr = false) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = isErr ? 'show err' : 'show';
+  setTimeout(() => { t.className = ''; }, 3200);
+}
+
+async function api(path, opts = {}) {
+  const token = localStorage.getItem('scanner_token') || '';
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch(path, { ...opts, headers });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    const t = prompt('توکن دسترسی (AUTH_TOKEN):');
+    if (t) {
+      localStorage.setItem('scanner_token', t.trim());
+      return api(path, opts);
+    }
+  }
+  if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+  return data;
+}
+
+const STATUS_FA = {
+  queued: 'در صف',
+  searching: 'جستجو',
+  fetching: 'دریافت',
+  done: 'کامل',
+  failed: 'ناموفق',
+};
+
+function fmtTime(ms) {
+  if (!ms) return '—';
+  try { return new Date(ms).toLocaleString('fa-IR'); } catch { return String(ms); }
+}
+
+function renderScans(scans) {
+  const el = $('scansList');
+  if (!scans.length) {
+    el.innerHTML = '<div class="empty">اسکنی وجود ندارد — موضوعی وارد کنید.</div>';
+    return;
+  }
+  el.innerHTML = scans.map((s) => {
+    const pct = s.pages_total > 0 ? Math.round((s.pages_done / s.pages_total) * 100) : (s.status === 'done' ? 100 : 0);
+    const active = ['queued', 'searching', 'fetching'].includes(s.status);
+    return `
+<div class="scan" data-id="${s.id}">
+  <div class="info">
+    <div class="topic">${esc(s.topic)}</div>
+    <div class="sub">
+      <span class="badge ${s.status}">${STATUS_FA[s.status] || s.status}</span>
+      <span>📄 ${s.pages_done}/${s.pages_total}</span>
+      <span>🧠 ${s.knowledge_count}</span>
+      <span>🔄 ${fmtTime(s.updated_at)}</span>
+      ${s.auto_refresh ? `<span>⏰ هر ${s.refresh_hours}س</span>` : ''}
+      ${s.error ? `<span style="color:var(--red)">${esc(s.error)}</span>` : ''}
+    </div>
+    <div class="progress"><i style="width:${pct}%"></i></div>
+  </div>
+  <div class="actions">
+    <a class="btn-ghost" href="/report/${s.id}" target="_blank">📎 لینک گزارش</a>
+    <a class="btn-ghost" href="/api/report/${s.id}" target="_blank">{ } JSON</a>
+    <button class="btn-ghost" data-act="refresh">↻ بروزرسانی</button>
+    <button class="btn-danger" data-act="delete">✕ حذف</button>
+  </div>
+</div>`;
+  }).join('');
+}
+
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+async function loadStats() {
+  try {
+    const [stats, health] = await Promise.all([
+      api('/api/stats'),
+      api('/api/health'),
+    ]);
+    $('stScans').textContent = stats.scans;
+    $('stActive').textContent = stats.active;
+    $('stPages').textContent = stats.pages;
+    $('stKnowledge').textContent = stats.knowledge;
+    if ($('stBatches')) $('stBatches').textContent = stats.batches ?? '—';
+    if ($('stSources')) $('stSources').textContent = stats.sources ?? '—';
+    $('dbName').textContent = stats.db;
+    $('chunkCfg').textContent = `${stats.chunker.target_chars} / ${stats.chunker.overlap_chars} / ${stats.chunker.min_chars} (tok ${stats.chunker.target_tokens})`;
+    $('ttlCfg').textContent = `${stats.ttl_days} روز`;
+    $('enginesCfg').textContent = stats.engines.join('، ');
+    $('cronsCfg').textContent = stats.crons.join(' · ');
+    if ($('retentionCfg') && stats.price_retention) {
+      const cyc = stats.price_retention.monthly_cycle_days ?? stats.settings?.retention_cycle_days ?? 31;
+      $('retentionCfg').textContent =
+        `نزدیک سقف: ۳ روز · هر ${cyc} روز: ۲۴ ساعت`;
+    }
+    if ($('retentionDays')) {
+      const cyc = stats.settings?.retention_cycle_days ?? stats.price_retention?.monthly_cycle_days ?? 31;
+      if (document.activeElement !== $('retentionDays')) $('retentionDays').value = cyc;
+    }
+    if ($('finderCfg') && stats.finder) {
+      $('finderCfg').textContent =
+        `round ${stats.finder.round ?? 0} · منابع ${stats.finder.total ?? stats.sources ?? 0}`;
+    }
+    $('healthDot').className = health.ok ? 'dot' : 'dot down';
+    $('healthTxt').textContent = health.ok ? 'D1 متصل' : 'D1 قطع';
+  } catch (e) {
+    $('healthDot').className = 'dot down';
+    $('healthTxt').textContent = 'خطا: ' + e.message;
+  }
+}
+
+async function loadScans() {
+  try {
+    const data = await api('/api/scans');
+    renderScans(data.scans || []);
+  } catch (e) {
+    $('scansList').innerHTML = `<div class="empty">خطا: ${esc(e.message)}</div>`;
+  }
+}
+
+const BATCH_STATUS_FA = {
+  queued: 'در صف',
+  searching: 'جستجو',
+  fetching: 'دریافت',
+  done: 'کامل',
+  failed: 'ناموفق',
+};
+
+function renderBatches(batches) {
+  const el = $('batchesList');
+  if (!batches.length) {
+    el.innerHTML = '<div class="empty">لیستی وجود ندارد — موضوعات را خط‌به‌خط وارد کنید.</div>';
+    return;
+  }
+  el.innerHTML = batches.map((b) => {
+    const total = b.scans_total || 0;
+    const done = b.scans_done || 0;
+    const active = b.scans_active || 0;
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    const status = active > 0 ? (done === total ? 'done' : 'fetching') : (done === total ? 'done' : (b.scans_total === 0 ? 'queued' : 'failed'));
+    return `
+<div class="scan" data-id="${esc(b.id)}">
+  <div class="info">
+    <div class="topic">📋 ${esc(b.title || 'لیست بدون عنوان')}</div>
+    <div class="sub">
+      <span class="badge ${status}">${BATCH_STATUS_FA[status] || status}</span>
+      <span>📝 ${done}/${total} موضوع</span>
+      <span>🧠 ${b.knowledge_count || 0} دانش</span>
+      <span>🔄 ${fmtTime(b.updated_at)}</span>
+    </div>
+    <div class="progress"><i style="width:${pct}%"></i></div>
+  </div>
+  <div class="actions">
+    <a class="btn-ghost" href="/report/batch/${esc(b.id)}" target="_blank">📎 لینک یکپارچه</a>
+    <a class="btn-ghost" href="/api/report/batch/${esc(b.id)}" target="_blank">{ } JSON کل</a>
+    <button class="btn-danger" data-act="del-batch">✕ حذف</button>
+  </div>
+</div>`;
+  }).join('');
+}
+
+async function loadBatches() {
+  try {
+    const data = await api('/api/batches');
+    renderBatches(data.batches || []);
+  } catch (e) {
+    $('batchesList').innerHTML = `<div class="empty">خطا: ${esc(e.message)}</div>`;
+  }
+}
+
+async function refreshAll() {
+  await Promise.all([loadStats(), loadScans(), loadBatches()]);
+}
+
+// actions (event delegation)
+$('scansList').addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('button[data-act]');
+  if (!btn) return;
+  const row = btn.closest('.scan');
+  const id = row?.dataset?.id;
+  if (!id) return;
+  btn.disabled = true;
+  try {
+    if (btn.dataset.act === 'delete') {
+      if (!confirm('این اسکن و دانش‌هایش حذف شود؟')) return;
+      await api('/api/scans/' + id, { method: 'DELETE' });
+      toast('حذف شد');
+    } else if (btn.dataset.act === 'refresh') {
+      await api('/api/scans/' + id + '/refresh', { method: 'POST' });
+      toast('بروزرسانی شروع شد…');
+      pollMs = 2000;
+    }
+    await refreshAll();
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('batchesList').addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('button[data-act]');
+  if (!btn) return;
+  const row = btn.closest('.scan');
+  const id = row?.dataset?.id;
+  if (!id) return;
+  if (btn.dataset.act !== 'del-batch') return;
+  if (!confirm('این لیست، همه اسکن‌ها و دانش‌هایش حذف شود؟')) return;
+  btn.disabled = true;
+  try {
+    await api('/api/batches/' + id, { method: 'DELETE' });
+    toast('لیست حذف شد');
+    await refreshAll();
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('batchForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const topics = $('batchTopics').value.trim();
+  if (!topics) { toast('حداقل یک موضوع وارد کنید', true); return; }
+  const btn = $('batchSubmitBtn');
+  btn.disabled = true;
+  try {
+    const data = await api('/api/batches', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: $('batchTitle').value.trim() || null,
+        topics,
+        auto_refresh: $('batchAutoRefresh').checked,
+        refresh_hours: parseInt($('batchRefreshHours').value, 10) || 24,
+      }),
+    });
+    const n = data.batch?.topics_count || data.scan_ids?.length || 0;
+    toast(`لیست ${n} موضوعی ساخته شد — لینک: ${data.report_url}`);
+    $('batchTopics').value = '';
+    $('batchTitle').value = '';
+    // open the one aggregated report link
+    if (data.report_url) window.open(data.report_url, '_blank');
+    await refreshAll();
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('scanForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const topic = $('topic').value.trim();
+  if (topic.length < 2) { toast('موضوع کوتاه است', true); return; }
+  const btn = $('submitBtn');
+  btn.disabled = true;
+  try {
+    const data = await api('/api/scans', {
+      method: 'POST',
+      body: JSON.stringify({
+        topic,
+        auto_refresh: $('autoRefresh').checked,
+        refresh_hours: parseInt($('refreshHours').value, 10) || 24,
+      }),
+    });
+    toast('اسکن ساخته شد — لینک گزارش: ' + data.report_url);
+    $('topic').value = '';
+    await refreshAll();
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// usage load
+async function loadUsage() {
+  try {
+    const data = await api('/api/usage');
+    const u = data.usage || {};
+    const cap = u.cap_mb ?? 500;
+    const mb = u.d1_mb ?? 0;
+    const pct = u.cap_percent ?? ((mb / cap) * 100).toFixed(1);
+    const rr = u.rows_read != null ? u.rows_read.toLocaleString('fa-IR') : '—';
+    const rw = u.rows_written != null ? u.rows_written.toLocaleString('fa-IR') : '—';
+    const req = u.requests != null ? u.requests.toLocaleString('fa-IR') : '—';
+    $('usageBox').innerHTML =
+      `حجم D1: <b>${mb}</b> از <b>${cap}</b> مگابایت (${pct}%)` +
+      ` · ردیف خوانده‌شده امروز: <b>${rr}</b>` +
+      ` · ردیف نوشته‌شده: <b>${rw}</b>` +
+      ` · درخواست Worker: <b>${req}</b>` +
+      (u.date ? ` · ${u.date}` : '');
+  } catch (e) {
+    $('usageBox').textContent = 'خطا: ' + e.message;
+  }
+}
+
+$('refreshUsage').addEventListener('click', async () => {
+  try {
+    await api('/api/usage/refresh', { method: 'POST' });
+    await loadUsage();
+    toast('مصرف به‌روز شد');
+  } catch (e) { toast(e.message, true); }
+});
+
+// MANUAL price delete — price rows only
+$('deletePrices').addEventListener('click', async () => {
+  const days = parseInt($('priceDeleteDays').value, 10);
+  if (!Number.isFinite(days) || days < 1 || days > 3650) {
+    toast('مقدار ۱ تا ۳۶۵۰ روز', true);
+    return;
+  }
+  if (!confirm(`فقط قیمت‌های قدیمی‌تر از ${days} روز حذف شود؟\nدانش فنی و توضیحی پاک نمی‌شود.`)) return;
+  try {
+    const data = await api('/api/prices/delete', {
+      method: 'POST',
+      body: JSON.stringify({ older_than_days: days }),
+    });
+    toast(`${data.deleted} ردیف قیمت حذف شد (فقط قیمت)`);
+    await refreshAll();
+    await loadUsage();
+  } catch (e) { toast(e.message, true); }
+});
+
+// retention cycle save
+$('saveRetention').addEventListener('click', async () => {
+  const days = parseInt($('retentionDays').value, 10);
+  if (!Number.isFinite(days) || days < 1 || days > 3650) {
+    toast('مقدار ۱ تا ۳۶۵۰ روز', true);
+    return;
+  }
+  try {
+    const data = await api('/api/settings', {
+      method: 'POST',
+      body: JSON.stringify({ retention_cycle_days: days }),
+    });
+    toast(`چرخه پاک‌سازی روی ${data.retention_cycle_days} روز تنظیم شد`);
+    await loadStats();
+  } catch (e) {
+    toast(e.message, true);
+  }
+});
+
+// poll every 4s while any scan active, else 12s
+let pollMs = 4000;
+async function tick() {
+  await refreshAll();
+  const active = $('stActive')?.textContent;
+  pollMs = (active && active !== '0' && active !== '—') ? 4000 : 12000;
+  setTimeout(tick, pollMs);
+}
+
+refreshAll();
+loadUsage();
+setTimeout(tick, 4000);
+</script>
+</body>
+</html>

@@ -1,0 +1,119 @@
+/** Qwen Scanner — Cloudflare Worker entry (fetch + scheduled) */
+
+import { handleApi } from './api.js';
+import { runTick, requeueDueScans, drainQueue } from './pipeline.js';
+import { renderReportPage, renderBatchReportPage, renderAllReportPage, renderSourcesPage } from './report.js';
+import { ensureSchema } from './schema.js';
+import { runFinderRound } from './finder.js';
+import { ensureIronPinSeed } from './seed.js';
+
+const HTML_HEADERS = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'X-Content-Type-Options': 'nosniff',
+};
+
+async function runScheduledWork(env, cron) {
+  await ensureSchema(env);
+  // IronPin seed once (sources + product price batch + harvest pages)
+  try {
+    await ensureIronPinSeed(env);
+  } catch (e) {
+    console.error('ironpin seed failed', e);
+  }
+  // Price retention is MANUAL-ONLY (user command) — no auto purge.
+  if (cron === '0 */6 * * *') {
+    await requeueDueScans(env);
+  }
+  // Searcher-2 discovery round (20 min rest between rounds)
+  try {
+    await runFinderRound(env);
+  } catch (e) {
+    console.error('finder failed', e);
+  }
+  // Drain queue in batch (was: single runTick — left items stuck in صف)
+  try {
+    await drainQueue(env, { maxSteps: 30 });
+  } catch (e) {
+    console.error('drain failed', e);
+    await runTick(env);
+  }
+}
+
+async function handleScheduled(event, env, ctx) {
+  const cron = (event && event.cron) || '';
+  console.log('scheduled fired', cron);
+  const work = runScheduledWork(env, cron)
+    .then(() => console.log('scheduled done', cron))
+    .catch((e) => {
+      console.error('scheduled error', e);
+      throw e;
+    });
+  if (ctx && typeof ctx.waitUntil === 'function') {
+    ctx.waitUntil(work);
+    return;
+  }
+  await work;
+}
+
+const worker = {
+  async fetch(request, env, ctx) {
+    let path = '/';
+    let method = 'GET';
+    try {
+      const url = new URL(request.url);
+      path = url.pathname;
+      method = request.method.toUpperCase();
+      // Manual pipeline trigger (local/dev + emergency re-run without waiting cron)
+      if (method === 'POST' && path === '/api/dev/tick') {
+        await ensureSchema(env);
+        const cron = url.searchParams.get('cron') || '';
+        await runScheduledWork(env, cron);
+        return new Response(JSON.stringify({ ok: true, cron }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (path.startsWith('/api/') || path.startsWith('/report/')) {
+        await ensureSchema(env);
+      }
+
+      if (path.startsWith('/api/')) {
+        return await handleApi(request, env, ctx);
+      }
+
+      if (path.startsWith('/report/batch/')) {
+        const id = decodeURIComponent(path.split('/')[3] || '');
+        return await renderBatchReportPage(id, env);
+      }
+
+      if (path === '/report/all') {
+        return await renderAllReportPage(env);
+      }
+      if (path === '/report/sources') {
+        return await renderSourcesPage(env);
+      }
+
+      if (path.startsWith('/report/')) {
+        const id = decodeURIComponent(path.split('/')[2] || '');
+        return await renderReportPage(id, env);
+      }
+
+      return env.ASSETS.fetch(request);
+    } catch (e) {
+      const msg = String(e?.message || e);
+      console.error('fetch error', path, msg, e?.stack);
+      if (path.startsWith('/api/')) {
+        return new Response(JSON.stringify({ error: msg }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+      }
+      return new Response('Internal error: ' + msg, { status: 500, headers: HTML_HEADERS });
+    }
+  },
+
+  scheduled: handleScheduled,
+};
+
+// Single module export: default { fetch, scheduled }
+export default worker;

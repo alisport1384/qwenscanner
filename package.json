@@ -1,0 +1,15 @@
+{
+  "name": "qwen-scanner",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create qwen_scanner",
+    "db:apply": "wrangler d1 execute qwen_scanner --file=./schema.sql --remote",
+    "db:apply:local": "wrangler d1 execute qwen_scanner --file=./schema.sql --local"
+  },
+  "devDependencies": {
+    "wrangler": "^4.86.0"
+  }
+}
