@@ -10,13 +10,12 @@ function now() {
   return Date.now();
 }
 
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data, null, 2), {
-    status,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-    },
-  });
+function json(data, status = 200, cacheControl = null) {
+  const headers = {
+    'Content-Type': 'application/json; charset=utf-8',
+  };
+  if (cacheControl) headers['Cache-Control'] = cacheControl;
+  return new Response(JSON.stringify(data, null, 2), { status, headers });
 }
 
 export function errorJson(message, status = 400) {
@@ -421,7 +420,9 @@ export async function handleApi(request, env, ctx) {
     const sources = new Set(items.map((i) => i.domain).filter((x) => x != null)).size;
     const categories = new Set(items.map((i) => i.category).filter((x) => x != null)).size;
     return json(
-      toQwenAllExport(items, { topics, sources, categories })
+      toQwenAllExport(items, { topics, sources, categories }),
+      200,
+      'public, max-age=120'
     );
   }
 
@@ -453,7 +454,7 @@ export async function handleApi(request, env, ctx) {
         created_at: s.created_at,
         last_checked_at: s.last_checked_at,
       })),
-    });
+    }, 200, 'public, max-age=120');
   }
 
   // ─── Daily CF / D1 usage ───
