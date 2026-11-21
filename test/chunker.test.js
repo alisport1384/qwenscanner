@@ -1,7 +1,7 @@
 /** Node unit tests — run: node test/chunker.test.js */
 import assert from 'node:assert/strict';
 import {
-  chunk, splitSentences, singleChunk, harvestFacts, estimateTokens,
+  chunk, splitSentences, singleChunk, harvestFacts, estimateTokens, isNoiseSentence,
   TARGET_CHARS, OVERLAP_CHARS, MIN_CHARS,
 } from '../src/chunker.js';
 import { buildKnowledgeItem, hashId, inferAttribute, toQwenExport } from '../src/knowledge.js';
@@ -160,6 +160,28 @@ ok('normalizeUrl strips utm + fragment, rejects bad', () => {
   assert.equal(normalizeUrl('javascript:alert(1)'), null);
   assert.equal(normalizeUrl('not a url'), null);
   assert.equal(domainOf('https://www.a.com/x'), 'a.com');
+});
+
+ok('isNoiseSentence filters menu/chrome boilerplate only', () => {
+  assert.equal(isNoiseSentence('صفحه اصلی'), true);
+  assert.equal(isNoiseSentence('تمامی حقوق محفوظ است'), true);
+  assert.equal(isNoiseSentence('عضویت در خبرنامه'), true);
+  // real content — even short, even containing a chrome-ish word — stays
+  assert.equal(isNoiseSentence('قیمت میلگرد امروز افزایش یافت'), false);
+  assert.equal(isNoiseSentence('قیمت تیرآهن IPE20 در بازار تهران'), false);
+  // long sentences are never treated as noise
+  assert.equal(isNoiseSentence('عضویت در خبرنامه برای دریافت آخرین قیمت‌های روز بازار آهن و فولاد بسیار مفید است'), false);
+});
+
+ok('harvestFacts skips noise rows (no extra sentences registered)', () => {
+  const text =
+    'قیمت میلگرد سایز 14 در بازار تهران امروز 12500 تومان هر کیلوگرم اعلام شد. ' +
+    'صفحه اصلی. ' +
+    'تیرآهن IPE20 نیز با نرخ 21000 تومان به فروش می‌رسد که نسبت به هفته گذشته تغییری نداشته است.';
+  const facts = harvestFacts(text, 8);
+  assert.equal(facts.length, 2);
+  assert.ok(facts.every((f) => !f.text.includes('صفحه اصلی')));
+  assert.ok(facts[0].text.includes('12500'));
 });
 
 console.log(`\n${passed} tests passed${process.exitCode ? ' (WITH FAILURES)' : ''}`);

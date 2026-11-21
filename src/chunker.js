@@ -110,12 +110,33 @@ export function singleChunk(text) {
   return { text: t, offset: 0, tokens: estimateTokens(t), index: 0 };
 }
 
+/**
+ * قربالگیری جملات اضافی — menu/chrome/footer boilerplate must never be
+ * registered as knowledge (spec: «هیچ جمله‌ای خارج از اهداف در موارد ثبت‌شده»).
+ * Conservative: only short, menu-shaped sentences with known chrome phrases.
+ */
+const NOISE_PHRASES = [
+  'صفحه اصلی', 'ورود به سایت', 'ثبت نام', 'ورود کاربران', 'درباره ما', 'تماس با ما',
+  'لینک‌های مفید', 'شبکه‌های اجتماعی', 'کپیرایت', 'تمامی حقوق محفوظ', 'all rights reserved',
+  'copyright', 'پیگیری سفارش', 'سبد خرید', 'فروشگاه اینترنتی', 'جستجو در سایت',
+  'پیشنهاد ویژه', 'تخفیف ویژه', 'عضویت در خبرنامه', 'آخرین اخبار سایت', 'نقشه سایت',
+  'چرا ما را انتخاب کنید', 'ارسال رایگان', 'پرداخت اینترنتی', 'پشتیبانی ۲۴ ساعته',
+];
+
+export function isNoiseSentence(s) {
+  const t = (s || '').trim();
+  if (!t) return true;
+  if (t.length > 48) return false;
+  const low = t.toLowerCase();
+  return NOISE_PHRASES.some((p) => low.includes(p));
+}
+
 /** Dual-write fact harvest: sentences 30–320 chars (report §7.1 FactHarvester). */
 export function harvestFacts(text, limit = 8) {
   const facts = [];
   for (const s of splitSentences(text || '')) {
     const len = s.text.length;
-    if (len >= 30 && len <= 320) {
+    if (len >= 30 && len <= 320 && !isNoiseSentence(s.text)) {
       facts.push({ text: s.text, offset: s.offset, tokens: estimateTokens(s.text) });
       if (facts.length >= limit) break;
     }

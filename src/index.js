@@ -8,6 +8,7 @@ import { runFinderRound } from './finder.js';
 import { ensureIronPinSeed } from './seed.js';
 import { getRowsReadFresh } from './usage.js';
 import { processIronpinBatch } from './ironpin.js';
+import { createGuardian } from './guardian.js';
 
 const HTML_HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
@@ -64,18 +65,34 @@ async function runScheduledWork(env, cron) {
   if (cron === '0 */6 * * *') {
     await requeueDueScans(env);
   }
-  // Searcher-2 discovery round (20 min rest between rounds)
+  // نگهبان اسکنر — one guardian per run: CPU wall-clock, daily fetch cap,
+  // daily AI cap; counters flushed once at the end (minimal D1 writes).
+  const guardian = await createGuardian(env);
   try {
-    await runFinderRound(env);
-  } catch (e) {
-    console.error('finder failed', e);
-  }
-  // Drain queue in batch (was: single runTick — left items stuck in صف)
-  try {
-    await drainQueue(env, { maxSteps: 30 });
-  } catch (e) {
-    console.error('drain failed', e);
-    await runTick(env);
+    // Searcher-2 discovery round (20 min rest between rounds)
+    if (!guardian.expired()) {
+      try {
+        await runFinderRound(env, { guardian });
+      } catch (e) {
+        console.error('finder failed', e);
+      }
+    }
+    // Drain queue in batch (was: single runTick — left items stuck in صف)
+    if (!guardian.expired()) {
+      try {
+        await drainQueue(env, { maxSteps: 30, guardian });
+      } catch (e) {
+        console.error('drain failed', e);
+        await runTick(env, { guardian });
+      }
+    }
+    console.log('guardian', JSON.stringify(guardian.stats()));
+  } finally {
+    try {
+      await guardian.flush();
+    } catch (e) {
+      console.error('guardian flush error', e);
+    }
   }
 }
 
@@ -127,7 +144,13 @@ const worker = {
         if (method === 'GET' && path === '/api/ironpin') {
           return await cachedGet(request, env, ctx, () => handleApi(request, env, ctx), 900);
         }
-        if (method === 'GET' && (path === '/api/report/all' || path === '/api/sources')) {
+        if (
+          method === 'GET' &&
+          (path === '/api/report/all' ||
+            path === '/api/sources' ||
+            path === '/api/qwen' ||
+            path === '/api/hushyar')
+        ) {
           return await cachedGet(request, env, ctx, () => handleApi(request, env, ctx));
         }
         return await handleApi(request, env, ctx);

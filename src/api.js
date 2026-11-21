@@ -3,7 +3,7 @@
 import { toQwenExport, toQwenBatchExport } from './knowledge.js';
 import { drainQueue } from './pipeline.js';
 import { getRetentionCycleDays, setRetentionCycleDays, deleteOldPrices } from './retention.js';
-import { toQwenAllExport } from './knowledge.js';
+import { toQwenAllExport, toHushyarExport, filterByTarget } from './knowledge.js';
 import { getUsage, refreshUsage } from './usage.js';
 import { streamIronpinExport } from './ironpin.js';
 
@@ -95,7 +95,11 @@ export async function handleApi(request, env, ctx) {
   // report URLs are capability links (unguessable UUID) meant to be shared.
   const isReportGet =
     method === 'GET' &&
-    (path.startsWith('/api/report/') || path === '/api/sources' || path === '/api/ironpin');
+    (path.startsWith('/api/report/') ||
+      path === '/api/sources' ||
+      path === '/api/ironpin' ||
+      path === '/api/qwen' ||
+      path === '/api/hushyar');
   if (!isReportGet && !checkAuth(request, url, env)) {
     return errorJson('unauthorized', 401);
   }
@@ -402,8 +406,14 @@ export async function handleApi(request, env, ctx) {
     return json({ ok: true, retention_cycle_days: cycleDays });
   }
 
-  // ─── ALL knowledge (live link) ───
-  if (method === 'GET' && path === '/api/report/all') {
+  // ─── ALL knowledge (live link) + qwen/hushyar aliases + target split ───
+  // /api/report/all?target=ironpin → only rows IronPin can consume (price,
+  // specs, definitions, calculations). /api/qwen → full RAG for the model.
+  // /api/hushyar → hushyar-knowledge-v1 (counted sections + link map).
+  if (
+    method === 'GET' &&
+    (path === '/api/report/all' || path === '/api/qwen' || path === '/api/hushyar')
+  ) {
     let items = [];
     try {
       const rows = await env.DB.prepare(
@@ -416,15 +426,19 @@ export async function handleApi(request, env, ctx) {
     } catch {
       items = [];
     }
+    const target = url.searchParams.get('target') || '';
+    if (target === 'ironpin' || target === 'qwen') items = filterByTarget(items, target);
     // Distinct counts from fetched rows — full-table COUNT(DISTINCT) burned D1 reads.
     const topics = new Set(items.map((i) => i.topic).filter((x) => x != null)).size;
     const sources = new Set(items.map((i) => i.domain).filter((x) => x != null)).size;
     const categories = new Set(items.map((i) => i.category).filter((x) => x != null)).size;
-    return json(
-      toQwenAllExport(items, { topics, sources, categories }),
-      200,
-      'public, max-age=120'
-    );
+    if (path === '/api/hushyar') {
+      return json(toHushyarExport(items, { topics, sources }), 200, 'public, max-age=120');
+    }
+    const doc = toQwenAllExport(items, { topics, sources, categories });
+    if (path === '/api/qwen') doc.feed = 'qwen-model';
+    if (target) doc.target = target;
+    return json(doc, 200, 'public, max-age=120');
   }
 
   // ─── IronPin Quote.toJson export ───

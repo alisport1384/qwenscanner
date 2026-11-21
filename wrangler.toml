@@ -11,6 +11,10 @@ binding = "DB"
 database_name = "qwen_scanner"
 database_id = "da86e390-bf90-4e29-b7df-ea903729c967"
 
+# نگهبان اسکنر — استخراج تایپ‌شده از تصویر (Clairic) به binding نیاز دارد.
+[ai]
+binding = "AI"
+
 [triggers]
 crons = ["* * * * *", "*/5 * * * *", "0 */6 * * *"]
 
@@ -18,3 +22,7 @@ crons = ["* * * * *", "*/5 * * * *", "0 */6 * * *"]
 MAX_PAGES_PER_SCAN = "12"
 PAGES_PER_TICK = "5"
 SEARCH_QUERY_LIMIT = "3"
+# نگهبان اسکنر — حداقل مصرف
+TICK_BUDGET_MS = "18000"        # سقف دیواری هر اجرای cron (CPU/wall)
+DAILY_FETCH_LIMIT = "700"       # سقف درخواست خروجی روزانه (صفحه/تصویر)
+IMAGE_EXTRACT_LIMIT = "60"      # سقف فراخوانی روزانهٔ استخراج تصویر

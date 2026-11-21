@@ -27,15 +27,95 @@ const AMOUNT_RE = /[0-9\u06F0-\u06F9][0-9\u06F0-\u06F9.,\u066C\u066B\s]{2,}/;
 
 export function inferAttribute(text) {
   const t = (text || '').toLowerCase();
+  // نرخ تبدیل / فرمول‌ها اول: عبارت‌های «نرخ تبدیل» قیمت بازار نیستند
+  if (/(نرخ تبدیل|نرخ ارز|نرخ بهره|تبدیل واحد|کیلوگرم بر متر|هر متر چند|قیمت هر واحد تبدیل)/i.test(t)) {
+    return 'calculation';
+  }
   if (IRONPIN_PRICE_RE.test(t)) return 'price';
   // product name + numeric amount without the word قیمت still counts as price row
   if (IRONPIN_PRODUCT_RE.test(t) && AMOUNT_RE.test(t) && /(تومان|ریال|خرید|فروش)/.test(t)) {
     return 'price';
   }
+  // تعاریف — پاسخ به «چیست / به چه می‌گویند»، برای تغذیهٔ مدل کوئن
+  if (
+    /(تعریف|تعاریف|عبارت است از|منظور از|به چه می‌گویند|معنای|تعریف می‌شود|تعریف شده|definition|defined as|means of|refers to)/i.test(
+      t
+    )
+  ) {
+    return 'definition';
+  }
+  // محاسبات — فرمول/معادله/نرخ تبدیل با اعداد و عملگر
+  if (
+    /(فرمول|محاسبه|محاسبات|نرخ تبدیل|چگالی|وزن هر|معادله|قانون [وژ]|تقسیم بر|ضرب در)/i.test(t) ||
+    (/\d\s*[×x*÷\/+]\s*\d/.test(t) && /=\s*\d/.test(t))
+  ) {
+    return 'calculation';
+  }
   if (/(مشخصات|spec|وزن|ابعاد|جنس|فناوری|dimension|material|technical|capacity)/.test(t)) return 'specs';
   if (/(نظر|review|امتیاز|تجربه|کیفیت|rating|opinion)/.test(t)) return 'reviews';
   if (/(اخبار|جدید|به‌روز|آخرین|update|news|202[5-9]|140[4-6])/.test(t)) return 'updates';
   return 'basics';
+}
+
+/** Separation of concerns: /api/report/all?target=... (spec: دانش جداگانه برای IronPin و Qwen). */
+export const TARGET_FILTERS = {
+  // IronPin: rows its product/price/range tabs can consume directly.
+  ironpin: ['price', 'specs', 'definition', 'calculation'],
+  // Qwen: the complete RAG corpus — no attribute restriction.
+  qwen: null,
+};
+
+export function filterByTarget(items, target) {
+  const allowed = TARGET_FILTERS[target];
+  if (!allowed) return items;
+  const set = new Set(allowed);
+  return items.filter((it) => set.has(it.attribute));
+}
+
+/** Houshyar feed — recognizable link /api/hushyar (format hushyar-knowledge-v1). */
+export function toHushyarExport(items, meta = {}) {
+  const byAttribute = {};
+  for (const it of items) byAttribute[it.attribute || 'basics'] = (byAttribute[it.attribute || 'basics'] || 0) + 1;
+  return {
+    format: 'hushyar-knowledge-v1',
+    generated_at: new Date().toISOString(),
+    scope: {
+      note: 'دانش استخراج‌شدهٔ اسکنر برای تغذیهٔ مدل در اپ هوشیار — بخش‌بندی‌شده بر اساس نوع',
+      items_total: items.length,
+      topics: meta.topics || null,
+      sources: meta.sources || null,
+    },
+    links: {
+      self: '/api/hushyar',
+      qwen_model: '/api/qwen',
+      all_knowledge: '/api/report/all',
+      ironpin_quotes: '/api/ironpin',
+      ironpin_knowledge: '/api/report/all?target=ironpin',
+      sources: '/api/sources',
+      panel: '/',
+    },
+    counts: {
+      by_attribute: byAttribute,
+      definitions: byAttribute.definition || 0,
+      calculations: byAttribute.calculation || 0,
+      prices: byAttribute.price || 0,
+    },
+    items: items.map((it) => ({
+      id: it.id,
+      scan_id: it.scan_id,
+      topic: it.topic,
+      question: it.question,
+      claim: it.claim,
+      attribute: it.attribute,
+      kind: it.kind,
+      url: it.url,
+      domain: it.domain,
+      confidence: it.confidence,
+      lang: it.lang,
+      last_verified_at: it.last_verified_at,
+      tags: safeParse(it.tags),
+    })),
+  };
 }
 
 function hasNumeric(text) {

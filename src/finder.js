@@ -278,7 +278,10 @@ const ROUND_REST_MS = 20 * 60_000;
  * Inserts new classified sources; enqueues readable ones for price scan.
  * Returns { round, added, scanned_queries, skipped_rest }.
  */
-export async function runFinderRound(env, { now = Date.now(), force = false } = {}) {
+export async function runFinderRound(env, { now = Date.now(), force = false, guardian = null } = {}) {
+  if (guardian && guardian.expired()) {
+    return { round: 0, added: 0, scanned_queries: 0, skipped_rest: true };
+  }
   const meta = await getMeta(env, 'finder_state');
   let state = { round: 0, last_run: 0, added: 0, total: 0 };
   try {
@@ -305,6 +308,7 @@ export async function runFinderRound(env, { now = Date.now(), force = false } = 
   for (const part of FinderPart.all) {
     const qs = finderQueries(part, state.round);
     for (const q of qs) {
+      if (guardian && guardian.expired()) break;
       queriesRun++;
       let hits = [];
       try {
@@ -369,6 +373,8 @@ export async function runFinderRound(env, { now = Date.now(), force = false } = 
   return { round: state.round, added, scanned_queries: queriesRun, skipped_rest: false };
 }
 
+const HARVEST_TOPIC = 'منابع قیمت آهن — جستجوگر ۲';
+
 /** Standing scan that harvests discovered + seed source URLs as pages. */
 export async function ensureHarvestScan(env, now = Date.now()) {
   const meta = await getMeta(env, 'harvest_scan_id');
@@ -381,6 +387,22 @@ export async function ensureHarvestScan(env, now = Date.now()) {
       /* recreate */
     }
   }
+  // Meta lost/reset must NOT pile up duplicate harvest scans (panel noise +
+  // wasted D1 rows): re-attach to the newest standing scan with this topic.
+  try {
+    const orphan = await env.DB.prepare(
+      `SELECT id FROM scans WHERE batch_id IS NULL AND topic = ?1
+       ORDER BY created_at DESC LIMIT 1`
+    )
+      .bind(HARVEST_TOPIC)
+      .first();
+    if (orphan?.id) {
+      await setMeta(env, 'harvest_scan_id', JSON.stringify({ id: orphan.id }));
+      return orphan.id;
+    }
+  } catch {
+    /* fall through to create */
+  }
   const id = crypto.randomUUID();
   const next = now + 24 * 3600_000;
   await env.DB.prepare(
@@ -388,7 +410,7 @@ export async function ensureHarvestScan(env, now = Date.now()) {
                         next_refresh_at, engines_used, created_at, updated_at)
      VALUES (?1, NULL, ?2, 'fetching', 'fetch', 1, 24, ?3, '[]', ?4, ?4)`
   )
-    .bind(id, 'منابع قیمت آهن — جستجوگر ۲', next, now)
+    .bind(id, HARVEST_TOPIC, next, now)
     .run();
   await setMeta(env, 'harvest_scan_id', JSON.stringify({ id }));
   return id;

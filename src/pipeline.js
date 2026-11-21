@@ -4,6 +4,7 @@ import { searchWeb, diverse } from './engines.js';
 import { extractMainText, extractTitle, detectLang, normalizeUrl, domainOf } from './extract.js';
 import { chunk, singleChunk, harvestFacts } from './chunker.js';
 import { buildKnowledgeItem } from './knowledge.js';
+import { extractFromPage } from './image_extract.js';
 
 const MAX_FETCH_MS = 10000;
 const HTML_CAP = 250_000; // chars — CPU safety on Workers free (10ms)
@@ -52,7 +53,9 @@ async function fetchPageText(url) {
 }
 
 /** Phase SEARCH: expand queries → engines → diverse pages → insert queue. */
-async function runSearchPhase(scan, env) {
+async function runSearchPhase(scan, env, opts = {}) {
+  const g = opts.guardian;
+  if (g && g.expired()) return;
   const maxPages = intVar(env, 'MAX_PAGES_PER_SCAN', 12);
   const qLimit = intVar(env, 'SEARCH_QUERY_LIMIT', 3);
   const queries = queriesForScan(scan, qLimit);
@@ -77,6 +80,7 @@ async function runSearchPhase(scan, env) {
   const enginesUsed = new Set(JSON.parse(scan.engines_used || '[]'));
 
   for (const q of queries) {
+    if (g && g.expired()) break;
     if (allHits.length >= maxPages + 6) break;
     const { hits, enginesUsed: used } = await searchWeb(q, {
       minHits: Math.min(8, room + 4),
@@ -130,7 +134,9 @@ async function runSearchPhase(scan, env) {
 }
 
 /** Phase FETCH: claim pending pages, extract, dual-write knowledge. */
-async function runFetchPhase(scan, env) {
+async function runFetchPhase(scan, env, opts = {}) {
+  const g = opts.guardian;
+  if (g && g.expired()) return;
   const perTick = intVar(env, 'PAGES_PER_TICK', 5);
 
   const claimed = await env.DB.prepare(
@@ -223,6 +229,9 @@ async function runFetchPhase(scan, env) {
   let deltaKb = 0;
 
   for (const page of pages) {
+    if (g && g.expired()) break;
+    if (g && !g.allowFetch(1)) break; // daily request cap — page stays pending
+    if (g) g.spendFetch(1);
     const { html, status: httpStatus, error: fetchErr } = await fetchPageText(page.url);
 
     if (fetchErr || !html) {
@@ -296,6 +305,21 @@ async function runFetchPhase(scan, env) {
         })
       );
     });
+
+    // استخراج تایپ‌شده از تصویر (Clairic) — bounded by guardian, never blocks.
+    if (g && !g.expired() && g.allowAi(1)) {
+      const imgItems = await extractFromPage(env, {
+        html,
+        pageUrl: page.url,
+        domain: page.domain,
+        text,
+        scan,
+        lang,
+        now: nowTs,
+        guardian: g,
+      });
+      for (const it of imgItems) items.push(it);
+    }
 
     if (items.length === 0) {
       await pageDoneStmt
@@ -402,7 +426,7 @@ export async function requeueDueScans(env) {
 /** One tick step: recover → fair pick (queued vs fetching by wait time) → advance.
  *  Long fetch jobs (e.g. 800+ page harvest) must not starve the queue.
  *  Returns true if work was performed. */
-export async function runTick(env) {
+export async function runTick(env, opts = {}) {
   await recoverStuck(env);
 
   const [fetching, queued] = await Promise.all([
@@ -420,23 +444,23 @@ export async function runTick(env) {
   // A just-searched scan gets updated_at=now → next tick prefers older queued.
   if (fetching && queued) {
     if ((queued.updated_at || 0) <= (fetching.updated_at || 0)) {
-      await markSearchingAndSearch(queued, env);
+      await markSearchingAndSearch(queued, env, opts);
     } else {
-      await runFetchPhase(fetching, env);
+      await runFetchPhase(fetching, env, opts);
     }
     return true;
   }
 
   if (queued) {
-    await markSearchingAndSearch(queued, env);
+    await markSearchingAndSearch(queued, env, opts);
     return true;
   }
 
-  await runFetchPhase(fetching, env);
+  await runFetchPhase(fetching, env, opts);
   return true;
 }
 
-async function markSearchingAndSearch(scan, env) {
+async function markSearchingAndSearch(scan, env, opts = {}) {
   if (scan.status === 'queued') {
     await env.DB.prepare(
       "UPDATE scans SET status = 'searching', updated_at = ?1 WHERE id = ?2"
@@ -445,14 +469,14 @@ async function markSearchingAndSearch(scan, env) {
       .run();
     scan.status = 'searching';
   }
-  await runSearchPhase(scan, env);
+  await runSearchPhase(scan, env, opts);
 }
 
 /** Advance a single scan one step (search or fetch). Returns true if worked. */
-async function advanceOne(scan, env) {
+async function advanceOne(scan, env, opts = {}) {
   if (!scan) return false;
   if (scan.status === 'fetching') {
-    await runFetchPhase(scan, env);
+    await runFetchPhase(scan, env, opts);
     return true;
   }
   if (scan.status === 'queued' || scan.status === 'searching') {
@@ -464,7 +488,7 @@ async function advanceOne(scan, env) {
         .run();
       scan.status = 'searching';
     }
-    await runSearchPhase(scan, env);
+    await runSearchPhase(scan, env, opts);
     return true;
   }
   return false;
@@ -473,18 +497,20 @@ async function advanceOne(scan, env) {
 /**
  * Drain the queue: optionally finish `prioritizeId` first, then loop runTick.
  * Used by refresh button (immediate) and cron (batch).
- * @param {{maxSteps?:number, prioritizeId?:string|null}} opts
+ * @param {{maxSteps?:number, prioritizeId?:string|null, guardian?:object}} opts
  */
-export async function drainQueue(env, { maxSteps = 24, prioritizeId = null } = {}) {
+export async function drainQueue(env, { maxSteps = 24, prioritizeId = null, guardian = null } = {}) {
   let steps = 0;
+  const opts = { guardian };
 
   if (prioritizeId) {
     while (steps < maxSteps) {
+      if (guardian && guardian.expired()) break;
       const scan = await env.DB.prepare('SELECT * FROM scans WHERE id = ?1')
         .bind(prioritizeId)
         .first();
       if (!scan || !['queued', 'searching', 'fetching'].includes(scan.status)) break;
-      const worked = await advanceOne(scan, env);
+      const worked = await advanceOne(scan, env, opts);
       if (!worked) break;
       steps++;
       // re-read status each loop; stop when terminal
@@ -496,7 +522,8 @@ export async function drainQueue(env, { maxSteps = 24, prioritizeId = null } = {
   }
 
   while (steps < maxSteps) {
-    const worked = await runTick(env);
+    if (guardian && guardian.expired()) break;
+    const worked = await runTick(env, opts);
     if (!worked) break;
     steps++;
   }

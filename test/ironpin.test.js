@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { processIronpinBatch, buildIronpinExport, streamIronpinExport } from '../src/ironpin.js';
+import { processIronpinBatch, buildIronpinExport, streamIronpinExport, cityFromPhone, computeConversions } from '../src/ironpin.js';
 const row={rid:4,id:'k1',scan_id:'s1',topic:'میلگرد',claim:'میلگرد سایز 16 قیمت 25000 تومان هر کیلو تهران 1405/02/03',category:'rag',attribute:'price',url:'https://example.com/p',domain:'example.com',last_verified_at:Date.UTC(2026,0,1)};
 const keys=['id','endpoint','seller','sellerCity','title','category','material','brand','loading','loadingCity','unit','tax','currency','terms','sourceUrl','sourceDateRaw','status','amount','pieceKg','lengthM','areaM2','fetchedAt','size','thickness','dimensions','grade','details'];
 
@@ -19,4 +19,31 @@ test('materialized export stream is valid single-GET JSON',async()=>{
 
 test('materialized output export loads stored Quote JSON',async()=>{
  const quote={id:'qw:s1:k1'};const db={prepare(sql){return{async all(){return{results:sql.includes('ironpin_quotes')?[{quote_json:JSON.stringify(quote)}]:[]}}}}};const out=await buildIronpinExport(db);assert.equal(out.format,'ironpin-quotes-v1');assert.equal(out.count,1);assert.deepEqual(out.quotes,[quote]);
+});
+
+test('cityFromPhone resolves geographic prefixes, null otherwise',()=>{
+ assert.equal(cityFromPhone('تماس 09121234567').city,'تهران');
+ assert.equal(cityFromPhone('+989171234567').city,'شیراز');
+ assert.equal(cityFromPhone('شماره 09191234567').prefix,'0919');
+ assert.equal(cityFromPhone('بدون شماره در متن'),null);
+ // operator (non-geographic) numbers give nothing — never a guessed city
+ assert.equal(cityFromPhone('09351234567'),null);
+});
+
+test('unit conversions: explicit wins, formulas by family, no invented tables',()=>{
+ const e=computeConversions('میلگرد شاخه 12 متری وزن 92 کیلوگرم هر شاخه',{unit:'piece'});
+ assert.equal(e.pieceKg,92);
+ assert.equal(e.lengthM,12);
+ assert.equal(e.basis,'صریح از متن');
+ const r=computeConversions('میلگرد سایز 14',{unit:'kg',size:'14'});
+ assert.equal(r.kgm,+(14*14/162.2).toFixed(3));
+ assert.equal(r.basis,'فرمول هندسی تقریبی');
+ const p=computeConversions('ورق 1000x2000 ضخامت 3',{unit:'sheet',thickness:'3'});
+ assert.equal(p.areaM2,2);
+ assert.equal(p.pieceKg,47.1);
+ // catalog-height profiles (IPE/HA) must stay null — app rule: no conversion
+ // without a valid unit weight.
+ const h=computeConversions('تیرآهن IPE200 و هاش 300',{unit:'m'});
+ assert.equal(h.pieceKg,null);
+ assert.equal(h.areaM2,null);
 });

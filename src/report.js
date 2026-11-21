@@ -394,13 +394,16 @@ export async function renderAllReportPage(env) {
   </div>
   <div class="actions">
     <a class="btn primary" href="/api/report/all" target="_blank">دانلود JSON کل دانش</a>
+    <a class="btn" href="/api/qwen" target="_blank">دانلود JSON کوئن</a>
+    <a class="btn" href="/api/hushyar" target="_blank">دانلود JSON هوشیار</a>
+    <a class="btn" href="/api/ironpin" target="_blank">ردیف‌های IronPin</a>
     <a class="btn" href="/report/sources">فهرست منابع</a>
     <a class="btn" href="/">پنل</a>
     <button class="btn" onclick="copyJson()">کپی JSON</button>
   </div>
   ${items.length ? items.slice(0, 500).map(itemCard).join('\n') : '<div class="empty">هنوز دانشی نیست.</div>'}
   ${items.length > 500 ? `<div class="empty">${items.length - 500} ایتم دیگر در JSON کامل</div>` : ''}
-  <footer>فرمت: <code>qwen-knowledge-v1</code> · لینک پایدار <code>/report/all</code></footer>`;
+  <footer>فرمت: <code>qwen-knowledge-v1</code> · لینک پایدار <code>/report/all</code> · تفکیک هدف: <code>?target=ironpin</code> / <code>?target=qwen</code></footer>`;
 
   const script = `
 <script>
