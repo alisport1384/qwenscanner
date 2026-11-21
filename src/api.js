@@ -5,7 +5,7 @@ import { drainQueue } from './pipeline.js';
 import { getRetentionCycleDays, setRetentionCycleDays, deleteOldPrices } from './retention.js';
 import { toQwenAllExport } from './knowledge.js';
 import { getUsage, refreshUsage } from './usage.js';
-import { buildIronpinExport } from './ironpin.js';
+import { streamIronpinExport } from './ironpin.js';
 
 function now() {
   return Date.now();
@@ -429,7 +429,7 @@ export async function handleApi(request, env, ctx) {
 
   // ─── IronPin Quote.toJson export ───
   if (method === 'GET' && path === '/api/ironpin') {
-    return json(await buildIronpinExport(env.DB), 200, 'public, max-age=120');
+    return await streamIronpinExport(env.DB);
   }
 
   // ─── Sources list (for IronPin) ───

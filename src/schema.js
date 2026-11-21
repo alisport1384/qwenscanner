@@ -86,6 +86,13 @@ CREATE TABLE IF NOT EXISTS meta (
   value       TEXT NOT NULL,
   updated_at  INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ironpin_quotes (
+  scan_id TEXT NOT NULL,
+  knowledge_id TEXT NOT NULL,
+  source_last_verified_at INTEGER NOT NULL,
+  quote_json TEXT NOT NULL,
+  PRIMARY KEY (scan_id, knowledge_id)
+);
 CREATE INDEX IF NOT EXISTS idx_scans_status ON scans (status, phase, next_refresh_at);
 CREATE INDEX IF NOT EXISTS idx_scans_batch ON scans (batch_id);
 CREATE INDEX IF NOT EXISTS idx_pages_scan_status ON pages (scan_id, status);

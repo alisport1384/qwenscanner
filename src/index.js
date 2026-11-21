@@ -7,6 +7,7 @@ import { ensureSchema } from './schema.js';
 import { runFinderRound } from './finder.js';
 import { ensureIronPinSeed } from './seed.js';
 import { getRowsReadFresh } from './usage.js';
+import { processIronpinBatch } from './ironpin.js';
 
 const HTML_HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
@@ -14,7 +15,7 @@ const HTML_HEADERS = {
 };
 
 /** Edge-cache public report GETs 120s — skipped when AUTH_TOKEN set (private). */
-async function cachedGet(request, env, ctx, fn) {
+async function cachedGet(request, env, ctx, fn, ttl = 120) {
   const cacheable = request.method === 'GET' && !env.AUTH_TOKEN;
   if (!cacheable) return await fn();
   try {
@@ -25,9 +26,9 @@ async function cachedGet(request, env, ctx, fn) {
   }
   const res = await fn();
   try {
-    if (res && res.ok) {
+    if (res && res.ok && !/\\bno-store\\b/i.test(res.headers.get('Cache-Control') || '')) {
       const clone = res.clone();
-      const p = caches.default.put(request, clone, { expirationTtl: 120 });
+      const p = caches.default.put(request, clone, { expirationTtl: ttl });
       if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(p.catch(() => {}));
       else await p.catch(() => {});
     }
@@ -58,6 +59,16 @@ async function runScheduledWork(env, cron) {
     }
   } catch (e) {
     console.error('read-budget guard failed', e);
+  }
+
+  // Incremental IronPin materialization: at most 10 indexed knowledge rows per tick.
+  // Parsing is removed from the public GET path; cursor advances only after the
+  // upserts commit, and newer source versions are naturally picked up later.
+  try {
+    const result = await processIronpinBatch(env.DB);
+    if (result.processed) console.log('ironpin materialized', result);
+  } catch (e) {
+    console.error('ironpin materialization failed', e);
   }
 
   if (cron === '0 */6 * * *') {
@@ -117,7 +128,10 @@ const worker = {
       }
 
       if (path.startsWith('/api/')) {
-        if (method === 'GET' && (path === '/api/report/all' || path === '/api/sources' || path === '/api/ironpin')) {
+        if (method === 'GET' && path === '/api/ironpin') {
+          return await cachedGet(request, env, ctx, () => handleApi(request, env, ctx), 900);
+        }
+        if (method === 'GET' && (path === '/api/report/all' || path === '/api/sources')) {
           return await cachedGet(request, env, ctx, () => handleApi(request, env, ctx));
         }
         return await handleApi(request, env, ctx);
