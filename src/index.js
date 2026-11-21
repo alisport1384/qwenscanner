@@ -117,7 +117,7 @@ const worker = {
       }
 
       if (path.startsWith('/api/')) {
-        if (method === 'GET' && (path === '/api/report/all' || path === '/api/sources')) {
+        if (method === 'GET' && (path === '/api/report/all' || path === '/api/sources' || path === '/api/ironpin')) {
           return await cachedGet(request, env, ctx, () => handleApi(request, env, ctx));
         }
         return await handleApi(request, env, ctx);
