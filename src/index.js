@@ -61,16 +61,6 @@ async function runScheduledWork(env, cron) {
     console.error('read-budget guard failed', e);
   }
 
-  // Incremental IronPin materialization: at most 10 indexed knowledge rows per tick.
-  // Parsing is removed from the public GET path; cursor advances only after the
-  // upserts commit, and newer source versions are naturally picked up later.
-  try {
-    const result = await processIronpinBatch(env.DB);
-    if (result.processed) console.log('ironpin materialized', result);
-  } catch (e) {
-    console.error('ironpin materialization failed', e);
-  }
-
   if (cron === '0 */6 * * *') {
     await requeueDueScans(env);
   }
@@ -92,10 +82,16 @@ async function runScheduledWork(env, cron) {
 async function handleScheduled(event, env, ctx) {
   const cron = (event && event.cron) || '';
   console.log('scheduled fired', cron);
-  const work = runScheduledWork(env, cron)
+  const work = (cron === '* * * * *'
+    ? (async () => {
+        await ensureSchema(env);
+        const result = await processIronpinBatch(env.DB);
+        if (result.processed) console.log('ironpin materialized', result);
+      })()
+    : runScheduledWork(env, cron))
     .then(() => console.log('scheduled done', cron))
     .catch((e) => {
-      console.error('scheduled error', e);
+      console.error('scheduled error', cron, e);
       throw e;
     });
   if (ctx && typeof ctx.waitUntil === 'function') {

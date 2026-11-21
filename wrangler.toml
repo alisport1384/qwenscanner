@@ -12,7 +12,7 @@ database_name = "qwen_scanner"
 database_id = "da86e390-bf90-4e29-b7df-ea903729c967"
 
 [triggers]
-crons = ["*/5 * * * *", "0 */6 * * *"]
+crons = ["* * * * *", "*/5 * * * *", "0 */6 * * *"]
 
 [vars]
 MAX_PAGES_PER_SCAN = "12"
