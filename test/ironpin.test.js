@@ -47,3 +47,35 @@ test('unit conversions: explicit wins, formulas by family, no invented tables',(
  assert.equal(h.pieceKg,null);
  assert.equal(h.areaM2,null);
 });
+
+test('incremental export honors since, returns cursor, skips candidates',async()=>{
+ const binds=[];
+ const rows=[{quote_json:'{"id":"a","amount":1}',source_last_verified_at:2000},{quote_json:'{"id":"b","amount":2}',source_last_verified_at:3000}];
+ const db={prepare(sql){return{bind(...args){
+   binds.push({sql,args});
+   return{async first(){return{value:JSON.stringify({done:true})}},async all(){return{results:rows}}};
+ }}}};
+ const res=await streamIronpinExport(db,{since:1500});
+ const qbind=binds.find(b=>b.sql.includes('ironpin_quotes'));
+ assert.ok(qbind,'quotes query executed');
+ assert.ok(qbind.sql.includes('source_last_verified_at >'),'filtered by since');
+ assert.equal(qbind.args[0],1500);
+ const out=JSON.parse(await res.text());
+ assert.equal(out.format,'ironpin-quotes-v1');
+ assert.equal(out.count,2);
+ assert.equal(out.since,1500);
+ assert.equal(out.cursor,3000,'cursor = max served timestamp');
+ assert.equal(out.candidates_count,0,'incremental payload carries no candidates');
+ assert.equal(out.complete,true);
+ assert.equal(res.headers.get('cache-control'),'no-store','incremental is never cached');
+});
+
+test('incremental export with no new rows keeps cursor at since',async()=>{
+ const db={prepare(sql){return{bind(...args){
+   return{async first(){return{value:JSON.stringify({done:true})}},async all(){return{results:[]}}};
+ }}}};
+ const res=await streamIronpinExport(db,{since:777});
+ const out=JSON.parse(await res.text());
+ assert.equal(out.count,0);
+ assert.equal(out.cursor,777);
+});

@@ -142,6 +142,10 @@ const worker = {
 
       if (path.startsWith('/api/')) {
         if (method === 'GET' && path === '/api/ironpin') {
+          // Incremental (`since`) responses are cursor-specific — never edge-cache them.
+          if (url.searchParams.has('since')) {
+            return await handleApi(request, env, ctx);
+          }
           return await cachedGet(request, env, ctx, () => handleApi(request, env, ctx), 900);
         }
         if (

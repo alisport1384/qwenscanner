@@ -98,3 +98,4 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_attr ON knowledge (attribute, last_veri
 CREATE INDEX IF NOT EXISTS idx_sources_part ON sources (part, kind);
 CREATE INDEX IF NOT EXISTS idx_pages_url ON pages (url);
 CREATE INDEX IF NOT EXISTS idx_sources_url ON sources (url);
+CREATE INDEX IF NOT EXISTS idx_ironpin_quotes_verified ON ironpin_quotes (source_last_verified_at);

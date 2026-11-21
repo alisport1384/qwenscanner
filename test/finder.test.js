@@ -289,12 +289,15 @@ ok('classifyProduct maps families', () => {
   assert.equal(classifyProduct('رابیتس 11 ستون'), 'رابیتس');
   assert.equal(classifyProduct('شمش بیلت 3SP'), 'شمش');
   assert.equal(classifyProduct('قراضه درجه 1'), 'قراضه');
+  assert.equal(classifyProduct('تیرچه فلزی 4 متری'), 'تیرچه');
+  assert.equal(classifyProduct('قیمت تیرچه بتنی'), 'تیرچه');
+  assert.equal(classifyProduct('تیرآهن IPE 180'), 'تیرآهن'); // no regression
   assert.equal(classifyProduct('گندله آهن و DRI'), 'other');
   assert.equal(classifyProduct('قرص آهن'), ''); // non-metal not a family here
 });
 
 ok('PRODUCT_FIELDS cover key families + notes', () => {
-  for (const f of ['لوله', 'بولت', 'تسمه', 'چهارپهلو', 'مفتول', 'مش جوشی', 'توری', 'رابیتس', 'شمش', 'قراضه', 'other']) {
+  for (const f of ['لوله', 'بولت', 'تسمه', 'چهارپهلو', 'مفتول', 'مش جوشی', 'توری', 'رابیتس', 'شمش', 'قراضه', 'تیرچه', 'other']) {
     assert.ok(PRODUCT_FIELDS[f], 'fields missing ' + f);
   }
   assert.ok(CATALOG_NOTES['لوله'].includes('Sch'));

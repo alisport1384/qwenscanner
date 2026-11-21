@@ -441,9 +441,10 @@ export async function handleApi(request, env, ctx) {
     return json(doc, 200, 'public, max-age=120');
   }
 
-  // ─── IronPin Quote.toJson export ───
+  // ─── IronPin Quote.toJson export (since = incremental for external mode) ───
   if (method === 'GET' && path === '/api/ironpin') {
-    return await streamIronpinExport(env.DB);
+    const since = parseInt(url.searchParams.get('since') || '0', 10) || 0;
+    return await streamIronpinExport(env.DB, { since });
   }
 
   // ─── Sources list (for IronPin) ───

@@ -14,7 +14,7 @@
 | [/api/report/all?target=qwen](https://qwen.alisport0.qzz.io/api/report/all?target=qwen) | تفکیک: دانش کوئن |
 | [/api/qwen](https://qwen.alisport0.qzz.io/api/qwen) | **لینک مخصوص مدل کوئن** |
 | [/api/hushyar](https://qwen.alisport0.qzz.io/api/hushyar) | **لینک مخصوص هوشیار** |
-| [/api/ironpin](https://qwen.alisport0.qzz.io/api/ironpin) | ردیف‌های Quote (IronPin) |
+| [/api/ironpin](https://qwen.alisport0.qzz.io/api/ironpin) | ردیف‌های Quote (IronPin)؛ `?since=<ms>` = حالت incremental با `cursor` |
 | [/report/sources](https://qwen.alisport0.qzz.io/report/sources) | فهرست منابع (IronPin) |
 | [/api/usage](https://qwen.alisport0.qzz.io/api/usage) | مصرف روزانه CF/D1 |
 
@@ -26,6 +26,8 @@ node test/chunker.test.js && node test/pipeline.test.js && node test/finder.test
   && node test/ironpin.test.js && node test/guardian.test.js
 npx wrangler deploy
 ```
+
+نتیجهٔ ۲۱ نوامبر ۲۰۲۶: chunker ۱۷ + finder ۱۹ + guardian ۱۳ + ironpin ۷ + pipeline — همه سبز.
 
 ## مستندات
 

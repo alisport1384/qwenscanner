@@ -93,6 +93,7 @@ CREATE TABLE IF NOT EXISTS ironpin_quotes (
   quote_json TEXT NOT NULL,
   PRIMARY KEY (scan_id, knowledge_id)
 );
+CREATE INDEX IF NOT EXISTS idx_ironpin_quotes_verified ON ironpin_quotes (source_last_verified_at);
 CREATE INDEX IF NOT EXISTS idx_scans_status ON scans (status, phase, next_refresh_at);
 CREATE INDEX IF NOT EXISTS idx_scans_batch ON scans (batch_id);
 CREATE INDEX IF NOT EXISTS idx_pages_scan_status ON pages (scan_id, status);
@@ -128,6 +129,7 @@ const MIGRATIONS = [
   'CREATE INDEX IF NOT EXISTS idx_sources_part ON sources (part, kind)',
   'CREATE INDEX IF NOT EXISTS idx_pages_url ON pages (url)',
   'CREATE INDEX IF NOT EXISTS idx_sources_url ON sources (url)',
+  'CREATE INDEX IF NOT EXISTS idx_ironpin_quotes_verified ON ironpin_quotes (source_last_verified_at)',
 ];
 
 let ensured = false;

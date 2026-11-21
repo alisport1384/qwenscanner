@@ -74,16 +74,34 @@ export async function processIronpinBatch(db){
  const last=list[list.length-1];const next={ts:last.last_verified_at,rowid:last.rid,done:false};stmts.push(db.prepare(`INSERT INTO meta(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).bind(BACKFILL_KEY,JSON.stringify(next),Date.now()));
  await db.batch(stmts);return {processed:list.length,quotes:stmts.length-1,done:false};
 }
-/** Serve pre-serialized Quote rows as a streamed single JSON response. */
-export async function streamIronpinExport(db){
- const [qres,sres,state]=await Promise.all([
-  db.prepare('SELECT quote_json,source_last_verified_at FROM ironpin_quotes ORDER BY rowid').all(),
-  db.prepare(`SELECT url,domain,kind,part,name,readable,origin,state,created_at,last_checked_at FROM sources WHERE state IN ('new','seed') ORDER BY created_at DESC LIMIT 5000`).all(),
+/** Serve pre-serialized Quote rows as a streamed single JSON response.
+ *  `since` (ms) = incremental mode for the app's external scanner: only rows
+ *  with source_last_verified_at > since (new OR updated), no candidates payload,
+ *  and `cursor` = max timestamp served so the client can advance next time. */
+export async function streamIronpinExport(db,{since=0}={}){
+ const sinceN=Number(since)>0?Number(since):0;
+ const incremental=sinceN>0;
+ const [qres,state]=await Promise.all([
+  incremental
+   ? db.prepare('SELECT quote_json,source_last_verified_at FROM ironpin_quotes WHERE source_last_verified_at > ?1 ORDER BY source_last_verified_at, rowid').bind(sinceN).all()
+   : db.prepare('SELECT quote_json,source_last_verified_at FROM ironpin_quotes ORDER BY rowid').all(),
   db.prepare('SELECT value FROM meta WHERE key=?1').bind(BACKFILL_KEY).first()
  ]);
- const qs=qres.results||[],src=sres.results||[];let ready=false;try{ready=JSON.parse(state?.value||'{}').done===true}catch{}const candidates=src.map(x=>({url:x.url,domain:x.domain,kind:x.kind,part:x.part,name:x.name||'',readable:!!x.readable,origin:x.origin,state:x.state,created_at:x.created_at,last_checked_at:x.last_checked_at}));const generated=new Date(Math.max(Date.now(),...qs.map(x=>Number(x.source_last_verified_at)||0))).toISOString();const enc=new TextEncoder();let i=0,first=true,phase=0;
- const body=new ReadableStream({pull(controller){if(phase===0){controller.enqueue(enc.encode(`{\"format\":\"ironpin-quotes-v1\",\"generated_at\":${JSON.stringify(generated)},\"count\":${qs.length},\"complete\":${ready},\"quotes\":[`));phase=1;return}if(phase===1){const end=Math.min(i+50,qs.length);let chunk='';for(;i<end;i++){if(!first)chunk+=',';first=false;chunk+=qs[i].quote_json}if(chunk)controller.enqueue(enc.encode(chunk));if(i<qs.length)return;controller.enqueue(enc.encode(`],\"candidates_count\":${candidates.length},\"candidates\":${JSON.stringify(candidates)}}`));phase=2;controller.close();return}controller.close()}});
- return new Response(body,{headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':ready?'public, max-age=900':'no-store','X-Content-Type-Options':'nosniff'}});
+ const qs=qres.results||[];let ready=false;try{ready=JSON.parse(state?.value||'{}').done===true}catch{}
+ let cursor=sinceN;
+ for(const r of qs){const t=Number(r.source_last_verified_at)||0;if(t>cursor)cursor=t}
+ let candidates=[];
+ if(!incremental){
+  try{
+   const sres=await db.prepare(`SELECT url,domain,kind,part,name,readable,origin,state,created_at,last_checked_at FROM sources WHERE state IN ('new','seed') ORDER BY created_at DESC LIMIT 5000`).all();
+   candidates=(sres.results||[]).map(x=>({url:x.url,domain:x.domain,kind:x.kind,part:x.part,name:x.name||'',readable:!!x.readable,origin:x.origin,state:x.state,created_at:x.created_at,last_checked_at:x.last_checked_at}));
+  }catch{candidates=[]}
+ }
+ const generated=new Date(Math.max(Date.now(),...qs.map(x=>Number(x.source_last_verified_at)||0))).toISOString();const enc=new TextEncoder();let i=0,first=true,phase=0;
+ const tail=`],\"candidates_count\":${candidates.length},\"candidates\":${JSON.stringify(candidates)},\"cursor\":${cursor}}`;
+ const head=`{\"format\":\"ironpin-quotes-v1\",\"generated_at\":${JSON.stringify(generated)},\"count\":${qs.length},\"complete\":${ready},${incremental?`\"since\":${sinceN},`:''}\"quotes\":[`;
+ const body=new ReadableStream({pull(controller){if(phase===0){controller.enqueue(enc.encode(head));phase=1;return}if(phase===1){const end=Math.min(i+50,qs.length);let chunk='';for(;i<end;i++){if(!first)chunk+=',';first=false;chunk+=qs[i].quote_json}if(chunk)controller.enqueue(enc.encode(chunk));if(i<qs.length)return;controller.enqueue(enc.encode(tail));phase=2;controller.close();return}controller.close()}});
+ return new Response(body,{headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':ready&&!incremental?'public, max-age=900':'no-store','X-Content-Type-Options':'nosniff'}});
 }
 export async function buildIronpinExport(db){
  const rows=await db.prepare('SELECT quote_json FROM ironpin_quotes ORDER BY rowid').all();const quotes=(rows.results||[]).map(r=>JSON.parse(r.quote_json));return {format:'ironpin-quotes-v1',generated_at:new Date().toISOString(),count:quotes.length,quotes};
