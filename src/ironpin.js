@@ -121,6 +121,10 @@ export function repairQuote(q) {
   }
   const f = FENCES[q.unit];
   if (f && !(q.amount >= f[0] && q.amount <= f[1])) return null;
+  // Title cap: only product + specs + price — never long prose/SEO text.
+  if (typeof q.title === 'string' && q.title.length > 120) {
+    q.title = q.title.slice(0, 120).replace(/[,،;；]$/, '').trim();
+  }
   return q;
 }
 
@@ -273,7 +277,7 @@ export async function buildIronpinExport(db, { since = 0, limit = 1000 } = {}) {
   const inc = sinceN > 0;
   const sql = inc
     ? 'SELECT quote_json, source_last_verified_at FROM ironpin_quotes WHERE source_last_verified_at > ?1 ORDER BY source_last_verified_at, rowid LIMIT ?2'
-    : 'SELECT quote_json, source_last_verified_at FROM ironpin_quotes ORDER BY rowid LIMIT ?2';
+    : 'SELECT quote_json, source_last_verified_at FROM ironpin_quotes ORDER BY rowid LIMIT ?1';
   const rows = inc
     ? await db.prepare(sql).bind(sinceN, limit).all()
     : await db.prepare(sql).bind(limit).all();

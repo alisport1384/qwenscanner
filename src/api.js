@@ -59,7 +59,11 @@ function parseScopedSelect(raw) {
 /** GET /api/stats — counters + scan counts + sources + storage. */
 export async function handleStats(req, env) {
   const now = Date.now();
-  const cached = await env.CACHE.get('stats');
+  // Edge-cache the stats snapshot when a KV binding exists; skip otherwise.
+  let cached = null;
+  if (env.CACHE) {
+    try { cached = await env.CACHE.get('stats'); } catch { /* no cache */ }
+  }
   if (cached) return json(new Response(cached), 200, await JSON.parse(cached));
 
   const counters = readCounters(env);
@@ -129,7 +133,9 @@ export async function handleStats(req, env) {
       next_refresh_at: s.next_refresh_at, updated_at: s.updated_at, created_at: s.created_at,
     })),
   };
-  await env.CACHE.put('stats', JSON.stringify(body), 300);
+  if (env.CACHE) {
+    try { await env.CACHE.put('stats', JSON.stringify(body), 300); } catch { /* no cache */ }
+  }
   return json(new Response(JSON.stringify(body)), 200, body);
 }
 
@@ -302,7 +308,7 @@ export async function handleIronpinExport(req, env, url) {
   const params = new URL(url).searchParams;
   const since = Math.max(0, parseInt(params.get('since') || '0', 10));
   const limit = Math.min(4000, Math.max(50, parseInt(params.get('limit') || '1000', 10)));
-  const body = await buildIronpinExport(env, { since, limit });
+  const body = await buildIronpinExport(env.DB, { since, limit });
   const res = new Response(JSON.stringify(body), {
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
