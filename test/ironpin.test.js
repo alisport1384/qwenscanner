@@ -50,7 +50,7 @@ test('unit conversions: explicit wins, formulas by family, no invented tables',(
 
 test('incremental export honors since, returns cursor, skips candidates',async()=>{
  const binds=[];
- const rows=[{quote_json:'{"id":"a","amount":1,"currency":"تومان"}',source_last_verified_at:2000},{quote_json:'{"id":"b","amount":2,"currency":"تومان"}',source_last_verified_at:3000}];
+ const rows=[{quote_json:'{"id":"a","amount":1500,"currency":"تومان"}',source_last_verified_at:2000},{quote_json:'{"id":"b","amount":2500,"currency":"تومان"}',source_last_verified_at:3000}];
  const db={prepare(sql){return{bind(...args){
    binds.push({sql,args});
    return{async first(){return{value:JSON.stringify({done:true})}},async all(){return{results:rows}}};

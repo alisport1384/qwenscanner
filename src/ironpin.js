@@ -97,7 +97,7 @@ export function extractPriceFromText(raw){
  *  if that yields no price the row is dropped (never export priceless). */
 export function repairQuote(q){
  if(!q||typeof q!=='object')return null;
- if(typeof q.amount==='number'&&q.amount>0&&q.currency==='تومان')return q;
+ if(typeof q.amount==='number'&&q.amount>=1000&&q.amount<=1e9&&q.currency==='تومان')return q;
  const d=(q.details&&typeof q.details==='object')?q.details:null;
  const ex=extractPriceFromText((d&&d['متن پیام'])||q.title||'');
  if(!ex)return null;
