@@ -154,7 +154,7 @@ ok('inferAttribute tags steel price text as price', () => {
 // --- retention ---
 function makeRetentionDb({ bytes = 1000, priceRows = [] } = {}) {
   const meta = new Map();
-  const tables = { knowledge: priceRows.slice(), meta };
+  const tables = { ironpin_quotes: priceRows.slice(), meta };
   return {
     _tables: tables,
     prepare(sql) {
@@ -180,17 +180,12 @@ function makeRetentionDb({ bytes = 1000, priceRows = [] } = {}) {
             meta.set(state.params[0], state.params[1]);
             return { success: true, meta: { changes: 1 } };
           }
-          if (/DELETE FROM knowledge/.test(s)) {
+          if (/DELETE FROM ironpin_quotes/.test(s)) {
             const cutoff = state.params[0];
             let changes = 0;
-            tables.knowledge = tables.knowledge.filter((k) => {
-              // STRICT: only structured price markers — never claim text
-              const isPrice =
-                k.attribute === 'price' ||
-                k.layer === 'price' ||
-                (k.tags || '').includes('price');
-              const old = k.last_verified_at < cutoff;
-              if (isPrice && old) {
+            tables.ironpin_quotes = tables.ironpin_quotes.filter((k) => {
+              const old = (k.source_last_verified_at || 0) < cutoff;
+              if (old) {
                 changes++;
                 return false;
               }
@@ -219,11 +214,11 @@ const DAY = 24 * 3600_000;
 await (async () => {
   const now = Date.now();
   const rows = [
-    { id: '1', scan_id: 's', attribute: 'price', layer: 'price', tags: '["price"]', claim: 'قیمت میلگرد 28000', last_verified_at: now - 40 * DAY },
-    { id: '2', scan_id: 's', attribute: 'price', layer: 'price', tags: '["price"]', claim: 'قیمت ورق 45000', last_verified_at: now - 2 * DAY },
-    { id: '3', scan_id: 's', attribute: 'specs', layer: 'specs', tags: '[]', claim: 'عوامل مؤثر بر قیمت ورق سیاه', last_verified_at: now - 40 * DAY },
-    { id: '4', scan_id: 's', attribute: 'basics', layer: 'basics', tags: '[]', claim: 'متن عادی', last_verified_at: now - 40 * DAY },
-    { id: '5', scan_id: 's', attribute: null, layer: null, tags: '["price","market"]', claim: 'نرخ روز', last_verified_at: now - 40 * DAY },
+    { id: '1', scan_id: 's', source_last_verified_at: now - 40 * DAY },
+    { id: '2', scan_id: 's', source_last_verified_at: now - 2 * DAY },
+    { id: '3', scan_id: 's', source_last_verified_at: now - 40 * DAY },
+    { id: '4', scan_id: 's', source_last_verified_at: now - 40 * DAY },
+    { id: '5', scan_id: 's', source_last_verified_at: now - 40 * DAY },
   ];
 
   // auto path disabled — never runs without explicit command
@@ -231,18 +226,16 @@ await (async () => {
   assert.equal(rAuto.mode, 'disabled_auto');
   assert.equal(rAuto.deleted, 0);
 
-  // manual delete: only structured price rows; technical knowledge untouched
+  // manual delete: only rows older than the horizon
   const db = makeRetentionDb({ priceRows: rows });
   const rMan = await deleteOldPrices({ DB: db }, { now, olderThanDays: 30 });
   assert.equal(rMan.mode, 'manual');
   assert.equal(rMan.older_than_days, 30);
-  assert.equal(rMan.deleted, 2, 'rows 1 and 5 deleted');
-  const ids = db._tables.knowledge.map((k) => k.id);
+  assert.equal(rMan.deleted, 4, 'rows 1,3,4,5 deleted');
+  const ids = db._tables.ironpin_quotes.map((k) => k.id);
   assert.ok(!ids.includes('1'), 'old price deleted');
   assert.ok(ids.includes('2'), 'recent price kept');
-  assert.ok(ids.includes('3'), 'technical claim mentioning قیمت KEPT');
-  assert.ok(ids.includes('4'), 'non-price basics kept');
-  assert.ok(!ids.includes('5'), 'tagged old price deleted');
+  assert.ok(!ids.includes('5'), 'old price deleted');
 
   // large horizon → nothing deleted
   const db2 = makeRetentionDb({ priceRows: rows });
@@ -253,7 +246,7 @@ await (async () => {
   const b = await estimateDbBytes({ DB: makeRetentionDb({ bytes: 42 }) });
   assert.equal(b, 42);
 
-  console.log(failed ? `\n${failed} FAILED` : '\nAll finder/retention tests passed');
+console.log(failed ? `\n${failed} FAILED` : '\nAll finder/retention tests passed');
   if (failed) process.exitCode = 1;
 })();
 

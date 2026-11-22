@@ -18,6 +18,23 @@ export function dayKey(t = Date.now()) {
   return new Date(t).toISOString().slice(0, 10);
 }
 
+/** Read today's guardian counters from meta (for the panel). */
+export async function readCounters(env, { now = Date.now() } = {}) {
+  const key = `guardian:${dayKey(now)}`;
+  try {
+    const row = await env.DB.prepare('SELECT value FROM meta WHERE key = ?1').bind(key).first();
+    const v = row?.value ? JSON.parse(row.value) : {};
+    return {
+      key,
+      fetched: Number.isFinite(v?.fetched) ? v.fetched : 0,
+      ai_used: Number.isFinite(v?.ai) ? v.ai : 0,
+      date: dayKey(now),
+    };
+  } catch {
+    return { key, fetched: 0, ai_used: 0, date: dayKey(now) };
+  }
+}
+
 function intVar(env, name, fallback) {
   const v = parseInt(env?.[name] ?? '', 10);
   return Number.isFinite(v) && v >= 0 ? v : fallback;

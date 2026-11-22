@@ -1,6 +1,7 @@
 /** Price-data retention for D1 free tier.
  *  Near free-cap MB → purge price rows older than 3 days.
  *  Otherwise every 31 days → purge price rows older than 24 hours.
+ *  Price rows live in ironpin_quotes (the knowledge table was removed — حذف).
  */
 
 const DAY_MS = 24 * 3600_000;
@@ -48,17 +49,11 @@ export async function setRetentionCycleDays(env, days) {
   return d;
 }
 
-/** Approximate stored bytes: knowledge text + page chars. */
+/** Approximate stored bytes: quote_json rows + page chars. */
 export async function estimateDbBytes(env) {
   try {
     const row = await env.DB.prepare(
-      `SELECT COALESCE((
-         SELECT SUM(LENGTH(claim) + LENGTH(question) + LENGTH(tags) + LENGTH(topic) + LENGTH(url))
-         FROM knowledge
-       ), 0) + COALESCE((
-         SELECT SUM(LENGTH(url) + LENGTH(COALESCE(title,'')) + LENGTH(COALESCE(source,'')) + chars)
-         FROM pages
-       ), 0) AS bytes`
+      `SELECT COALESCE((\n         SELECT SUM(LENGTH(quote_json)) FROM ironpin_quotes\n       ), 0) + COALESCE((\n         SELECT SUM(LENGTH(url) + LENGTH(COALESCE(title,'')) + LENGTH(COALESCE(source,'')) + chars)\n         FROM pages\n       ), 0) AS bytes`
     ).first();
     return Number(row?.bytes || 0);
   } catch {
@@ -66,21 +61,14 @@ export async function estimateDbBytes(env) {
   }
 }
 
-/** Price rows ONLY — attribute/layer/tags marked price.
- *  NEVER matches claim text (technical docs mentioning «قیمت» stay). */
+/** Price rows live in ironpin_quotes; only price rows are ever purged. */
 const PRICE_DELETE_STRICT = `
-  DELETE FROM knowledge
-  WHERE last_verified_at < ?1
-    AND (
-      attribute = 'price'
-      OR layer = 'price'
-      OR tags LIKE '%"price"%'
-    )`;
+  DELETE FROM ironpin_quotes
+  WHERE source_last_verified_at < ?1`;
 
 /**
  * MANUAL price retention — only runs when explicitly invoked.
- * Deletes price-tagged knowledge older than `olderThanDays` (default from settings).
- * Never touches non-price (technical/explanatory) rows.
+ * Deletes ironpin_quotes older than `olderThanDays` (default from settings).
  * Returns { mode, cutoff, deleted, bytes, older_than_days }.
  */
 export async function deleteOldPrices(env, { now = Date.now(), olderThanDays = null } = {}) {
@@ -125,5 +113,34 @@ export async function getRetentionState(env) {
     return JSON.parse(meta?.value || 'null');
   } catch {
     return null;
+  }
+}
+
+/** Delete quotes for a set of source URLs (admin cleanup). Returns per-call stats. */
+export async function deleteQuotesForUrls(env, urls) {
+  const list = (urls || []).filter(Boolean).map(String);
+  if (!list.length) return { deleted: 0, urls: 0 };
+  const chunks = [];
+  let deleted = 0;
+  for (const url of list) {
+    try {
+      const res = await env.DB.prepare(
+        'DELETE FROM ironpin_quotes WHERE source_url = ?1'
+      ).bind(url).run();
+      deleted += res?.meta?.changes ?? res?.changes ?? 0;
+      chunks.push(url);
+    } catch { /* skip bad url */ }
+  }
+  return { deleted, urls: chunks.length };
+}
+
+/** Delete meta keys matching a LIKE pattern (report cache cleanup). */
+export async function clearMeta(env, likePattern) {
+  if (!likePattern) return 0;
+  try {
+    const res = await env.DB.prepare('DELETE FROM meta WHERE key LIKE ?1').bind(likePattern).run();
+    return res?.meta?.changes ?? res?.changes ?? 0;
+  } catch {
+    return 0;
   }
 }

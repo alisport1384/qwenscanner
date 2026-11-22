@@ -7,7 +7,8 @@
     "deploy": "wrangler deploy",
     "db:create": "wrangler d1 create qwen_scanner",
     "db:apply": "wrangler d1 execute qwen_scanner --file=./schema.sql --remote",
-    "db:apply:local": "wrangler d1 execute qwen_scanner --file=./schema.sql --local"
+    "db:apply:local": "wrangler d1 execute qwen_scanner --file=./schema.sql --local",
+    "test": "node test/smoke.js && node test/finder.test.js && node test/ironpin.test.js && node test/guardian.test.js && node test/pipeline.test.js"
   },
   "devDependencies": {
     "wrangler": "^4.86.0"

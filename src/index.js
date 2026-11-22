@@ -150,10 +150,7 @@ const worker = {
         }
         if (
           method === 'GET' &&
-          (path === '/api/report/all' ||
-            path === '/api/sources' ||
-            path === '/api/qwen' ||
-            path === '/api/hushyar')
+          (path === '/api/report/all' || path === '/api/sources')
         ) {
           return await cachedGet(request, env, ctx, () => handleApi(request, env, ctx));
         }

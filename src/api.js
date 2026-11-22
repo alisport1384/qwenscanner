@@ -1,630 +1,567 @@
-/** HTTP API — scans/batches CRUD, report export, stats, health */
+/**
+ * REST panel API — IronPin-only.
+ *
+ * The Qwen knowledge and Hushyar routes are removed (marked حذف). The app
+ * (IronPin2) consumes the scanner exclusively through /api/ironpin.
+ */
 
-import { toQwenExport, toQwenBatchExport } from './knowledge.js';
 import { drainQueue } from './pipeline.js';
-import { getRetentionCycleDays, setRetentionCycleDays, deleteOldPrices } from './retention.js';
-import { toQwenAllExport, toHushyarExport, filterByTarget } from './knowledge.js';
-import { getUsage, refreshUsage } from './usage.js';
-import { streamIronpinExport } from './ironpin.js';
+import { getPanelReport } from './report.js';
+import { readCounters } from './guardian.js';
+import { buildIronpinExport } from './ironpin.js';
+import { deleteQuotesForUrls, clearMeta, getRetentionState, getRetentionCycleDays, setRetentionCycleDays, deleteOldPrices } from './retention.js';
+import { getUsage } from './usage.js';
+import { ensureIronPinSeed } from './seed.js';
 
-function now() {
-  return Date.now();
+const TOKEN_RE = /^[a-z0-9_-]{8,}$/i;
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    req.on('data', (c) => { raw += c; });
+    req.on('end', () => {
+      if (!raw) return resolve({});
+      try { resolve(JSON.parse(raw)); } catch { reject(new Error('bad_json')); }
+    });
+    req.on('error', reject);
+  });
 }
 
-function json(data, status = 200, cacheControl = null) {
-  const headers = {
-    'Content-Type': 'application/json; charset=utf-8',
+function json(res, status, obj) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+  });
+}
+
+function isValidToken(t) {
+  return typeof t === 'string' && TOKEN_RE.test(t);
+}
+
+function scopedEnv(env, token) {
+  return { DB: env.DB, token };
+}
+
+/**
+ * Parse `SELECT ... FROM <table> WHERE id = ?` with table-name allowlist.
+ * Used to sandbox panel report queries to known D1 tables.
+ */
+const TABLES = new Set(['scans', 'batches', 'pages', 'sources', 'ironpin_quotes', 'meta']);
+function parseScopedSelect(raw) {
+  const m = /^\s*select\s+(.+?)\s+from\s+([a-z_][a-z0-9_]*)(?:\s+where\s+id\s*=\s*([0-9]+))?\s*;?\s*$/i.exec(raw || '');
+  if (!m) throw new Error('bad_select');
+  const table = m[2];
+  if (!TABLES.has(table)) throw new Error('bad_table');
+  const whereId = m[3] != null ? Number(m[3]) : null;
+  return { table, whereId };
+}
+
+/** GET /api/stats — counters + scan counts + sources + storage. */
+export async function handleStats(req, env) {
+  const now = Date.now();
+  const cached = await env.CACHE.get('stats');
+  if (cached) return json(new Response(cached), 200, await JSON.parse(cached));
+
+  const counters = readCounters(env);
+
+  const [active, doneToday, allScans, sources] = await Promise.all([
+    env.DB.prepare(
+      `SELECT COUNT(*) AS c, COALESCE(SUM(knowledge_count),0) AS quotes
+       FROM scans WHERE status IN ('queued','searching','fetching')`
+    ).first(),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM scans WHERE status = 'done' AND updated_at >= ?`
+    ).bind(now - 86_400_000).first(),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS c, COALESCE(MAX(knowledge_count),0) AS maxQuotes FROM scans`
+    ).first(),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS c,
+         SUM(CASE WHEN state='live' THEN 1 ELSE 0 END) AS live,
+         SUM(CASE WHEN state='dead' THEN 1 ELSE 0 END) AS dead
+       FROM sources`
+    ).first(),
+  ]);
+
+  const scans = await env.DB.prepare(
+    `SELECT s.*, (SELECT COUNT(*) FROM pages p WHERE p.scan_id = s.id) AS pages
+     FROM scans s
+     ORDER BY s.id DESC LIMIT 12`
+  ).all();
+
+  const storage = await env.DB.prepare(
+    `SELECT COUNT(*) AS pages FROM pages;
+     SELECT COUNT(*) AS quotes FROM ironpin_quotes;
+     SELECT COUNT(*) AS sources FROM sources;`
+  ).all();
+
+  const [batches, retention, settings] = await Promise.all([
+    env.DB.prepare('SELECT COUNT(*) AS c FROM batches').first(),
+    getRetentionState(env),
+    getRetentionCycleDays(env),
+  ]);
+
+  const body = {
+    counters,
+    scans: (scans?.results || []).length,
+    active: active?.c || 0,
+    pages: storage?.[0]?.pages || 0,
+    quotes: storage?.[1]?.quotes || 0,
+    knowledge: storage?.[1]?.quotes || 0,
+    batches: batches?.c || 0,
+    sources: sources?.c || 0,
+    db: env.DB?.name || 'D1',
+    engines: JSON.parse(scans?.results?.[0]?.engines_used || '[]'),
+    crons: ['* * * * *', '0 */6 * * *', '0 3 * * *'],
+    settings: { retention_cycle_days: settings },
+    price_retention: retention,
+    storage: {
+      pages: storage?.[0]?.pages || 0,
+      quotes: storage?.[1]?.quotes || 0,
+      sources: storage?.[2]?.sources || 0,
+    },
+    scans_list: (scans?.results || []).map((s) => ({
+      id: s.id, topic: s.topic, status: s.status, phase: s.phase,
+      token: s.token, auto_refresh: s.auto_refresh,
+      knowledge_count: s.knowledge_count || 0,
+      pages_total: s.pages_total || 0, pages_done: s.pages_done || 0,
+      pages: s.pages || 0, error: s.error,
+      next_refresh_at: s.next_refresh_at, updated_at: s.updated_at, created_at: s.created_at,
+    })),
   };
-  if (cacheControl) headers['Cache-Control'] = cacheControl;
-  return new Response(JSON.stringify(data, null, 2), { status, headers });
+  await env.CACHE.put('stats', JSON.stringify(body), 300);
+  return json(new Response(JSON.stringify(body)), 200, body);
 }
 
-/** Minified JSON for multi-MB feeds: pretty-printed 20MB+ responses stalled
- *  browser tabs on the "JSON" links (white screen while millions of lines
- *  rendered). Same bytes of information, loads and parses immediately. */
-export function jsonMin(data, status = 200, cacheControl) {
-  const headers = { 'Content-Type': 'application/json; charset=utf-8' };
-  if (cacheControl) headers['Cache-Control'] = cacheControl;
-  return new Response(JSON.stringify(data), { status, headers });
+/** GET /api/scans — recent scans list. */
+export async function handleScans(req, env) {
+  const scans = await env.DB.prepare(
+    `SELECT s.*, (SELECT COUNT(*) FROM pages p WHERE p.scan_id = s.id) AS pages
+     FROM scans s ORDER BY s.id DESC LIMIT 50`
+  ).all();
+  const rows = (scans?.results || []).map((s) => ({
+    id: s.id, topic: s.topic, status: s.status, phase: s.phase,
+    token: s.token, auto_refresh: s.auto_refresh,
+    knowledge_count: s.knowledge_count || 0,
+    pages_total: s.pages_total || 0, pages_done: s.pages_done || 0,
+    pages: s.pages || 0, error: s.error,
+    next_refresh_at: s.next_refresh_at, updated_at: s.updated_at, created_at: s.created_at,
+  }));
+  return json(new Response(JSON.stringify({ scans: rows })), 200, { scans: rows });
 }
 
-export function errorJson(message, status = 400) {
-  return json({ error: message }, status);
+/** GET /api/scans/:id — one scan detail (quotes + pages + guardian counters). */
+export async function handleScanDetail(req, env, scanId) {
+  const scan = await env.DB.prepare('SELECT * FROM scans WHERE id = ?').bind(Number(scanId)).first();
+  if (!scan) return json(null, 404, { error: 'not_found' });
+
+  const quotes = await env.DB.prepare(
+    `SELECT id, seller, title, category, unit, currency, amount, source_url, published_at,
+        piece_kg, length_m, area_m2, size, thickness, details, quality, material,
+        brand, load_type, load_city, terms, source_date_raw
+     FROM ironpin_quotes WHERE scan_id = ? ORDER BY id DESC LIMIT 200`
+  ).bind(scan.id).all();
+
+  const pages = await env.DB.prepare(
+    `SELECT id, url, domain, title, status, error, http_status, chars, attempts, fetched_at
+     FROM pages WHERE scan_id = ? ORDER BY id DESC LIMIT 200`
+  ).bind(scan.id).all();
+
+  const counters = readCounters(env);
+  const body = {
+    scan: {
+      id: scan.id, topic: scan.topic, status: scan.status, phase: scan.phase,
+      token: scan.token, auto_refresh: scan.auto_refresh,
+      knowledge_count: scan.knowledge_count, pages_total: scan.pages_total,
+      pages_done: scan.pages_done, error: scan.error,
+      next_refresh_at: scan.next_refresh_at, updated_at: scan.updated_at,
+    },
+    quotes: quotes?.results || [],
+    pages: pages?.results || [],
+    counters,
+  };
+  return json(new Response(JSON.stringify(body)), 200, body);
 }
 
-// ─── Panel payload caches (meta-backed, invalidated on writes) ───
-// /api/stats + /api/batches were the top D1 row-read burners: the panel polled
-// them every 4-12s and each hit ran 8 COUNTs / 50x4 correlated subqueries.
-const CACHE_TTL_MS = 300_000; // 5 min — totals only, mutations bust explicitly
+/** POST /api/scans — queue a scan for a topic. */
+export async function handleCreateScan(req, env) {
+  let body;
+  try { body = await readBody(req); } catch (e) { return json(null, 400, { error: 'bad_json' }); }
 
-async function readCache(env, key) {
+  const topic = (body.topic || '').trim();
+  if (!topic) return json(null, 400, { error: 'topic_required' });
+  if (topic.length > 100) return json(null, 400, { error: 'topic_too_long' });
+
+  const token = (body.token || '').trim();
+  if (token && !isValidToken(token)) return json(null, 400, { error: 'bad_token' });
+
+  const scan = await env.DB.prepare(
+    `INSERT INTO scans (topic, token, auto_refresh, refresh_hours, status, phase, next_refresh_at)
+     VALUES (?1, ?2, ?3, ?4, 'queued', 'search', ?5)`
+  ).bind(
+    topic, token || null,
+    body.auto_refresh === false ? 0 : 1,
+    Math.min(240, Math.max(1, Number(body.refresh_hours) || 24)),
+    (body.auto_refresh === false ? null : Date.now() + (Number(body.refresh_hours) || 24) * 3600_000)
+  ).run();
+
+  const id = Number(scan.last_row_id);
+  await env.DB.prepare(
+    `INSERT INTO batches (scan_id, topic, status, stats, created_at, updated_at)
+     VALUES (?1, ?2, 'running', '{}', ?3, ?3)`
+  ).bind(id, topic, Date.now()).run();
+
+  if (body.start === true) {
+    const started = await drainQueue(env, { prioritizeId: id, maxSteps: 3 });
+    return json(new Response(JSON.stringify(started)), 200, started);
+  }
+  return json(new Response(JSON.stringify({ id })), 202, { id });
+}
+
+/** POST /api/scans/:id/pause — stop auto-refresh for a scan. */
+export async function handlePauseScan(req, env, scanId) {
+  const r = await env.DB.prepare(
+    'UPDATE scans SET auto_refresh = 0, next_refresh_at = NULL, updated_at = ?1 WHERE id = ?2'
+  ).bind(Date.now(), Number(scanId)).run();
+  if (r.changes === 0) return json(null, 404, { error: 'not_found' });
+  return json(new Response(JSON.stringify({ ok: true })), 200, { ok: true });
+}
+
+/** POST /api/scans/:id/resume — re-enable auto-refresh. */
+export async function handleResumeScan(req, env, scanId) {
+  const r = await env.DB.prepare(
+    'UPDATE scans SET auto_refresh = 1, next_refresh_at = ?1, updated_at = ?1 WHERE id = ?2'
+  ).bind(Date.now(), Number(scanId)).run();
+  if (r.changes === 0) return json(null, 404, { error: 'not_found' });
+  return json(new Response(JSON.stringify({ ok: true })), 200, { ok: true });
+}
+
+/** POST /api/scans/:id/refresh — queue a fresh re-scan now. */
+export async function handleRefreshScan(req, env, scanId) {
+  const scan = await env.DB.prepare('SELECT id FROM scans WHERE id = ?').bind(Number(scanId)).first();
+  if (!scan) return json(null, 404, { error: 'not_found' });
+  await env.DB.prepare(
+    `UPDATE scans SET status='queued', phase='search', error=NULL, pages_done=0, knowledge_count=0,
+       pages_total=0, updated_at=?1, next_refresh_at=NULL
+     WHERE id=?2`
+  ).bind(Date.now(), scan.id).run();
+  await env.DB.prepare(
+    `UPDATE pages SET status='pending', claimed_at=NULL, attempts=0 WHERE scan_id=?1`
+  ).bind(scan.id).run();
+  const done = await drainQueue(env, { prioritizeId: scan.id, maxSteps: 3 });
+  return json(new Response(JSON.stringify(done)), 200, done);
+}
+
+/** POST /api/scans/:id/cancel — remove the scan and its pages/quotes. */
+export async function handleCancelScan(req, env, scanId) {
+  const r = await env.DB.prepare('SELECT id FROM scans WHERE id = ?').bind(Number(scanId)).first();
+  if (!r) return json(null, 404, { error: 'not_found' });
+  const now = Date.now();
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM ironpin_quotes WHERE scan_id = ?1').bind(scanId),
+    env.DB.prepare('DELETE FROM pages WHERE scan_id = ?1').bind(scanId),
+    env.DB.prepare('DELETE FROM batches WHERE scan_id = ?1').bind(scanId),
+    env.DB.prepare('DELETE FROM scans WHERE id = ?1').bind(scanId),
+  ]);
+  await env.DB.prepare('DELETE FROM meta WHERE key LIKE ?1').bind(`sources:${scanId}:%`).run();
+  return json(new Response(JSON.stringify({ ok: true, now })), 200, { ok: true, now });
+}
+
+/** GET /api/report/:token — public token report (scan summary + quotes + pages). */
+export async function handleReport(req, env, token) {
+  const scan = await env.DB.prepare('SELECT * FROM scans WHERE token = ?').bind(token).first();
+  if (!scan) return json(null, 404, new Response(JSON.stringify({ error: 'not_found' })));
+
+  const body = await getPanelReport(scopedEnv(env, token), scan.id);
+  if (!body) return json(null, 404, new Response(JSON.stringify({ error: 'not_found' })));
+
+  return json(new Response(JSON.stringify(body)), 200, body);
+}
+
+/** GET /api/report/all — full scans list (no token scoping — public page). */
+export async function handleReportAll(req, env) {
+  const scans = await env.DB.prepare(
+    `SELECT id, topic, status, phase, knowledge_count, pages_total, pages_done, error,
+        auto_refresh, next_refresh_at, updated_at
+     FROM scans ORDER BY id DESC`
+  ).all();
+  const body = {
+    scans: (scans?.results || []).map((s) => ({
+      id: s.id, topic: s.topic, status: s.status, phase: s.phase,
+      knowledge_count: s.knowledge_count || 0,
+      pages_total: s.pages_total || 0, pages_done: s.pages_done || 0,
+      error: s.error, auto_refresh: s.auto_refresh,
+      next_refresh_at: s.next_refresh_at, updated_at: s.updated_at,
+    })),
+  };
+  return json(new Response(JSON.stringify(body)), 200, body);
+}
+
+/** GET /api/ironpin — IronPin-native quotes feed for the external app (IronPin2). */
+export async function handleIronpinExport(req, env, url) {
+  const params = new URL(url).searchParams;
+  const since = Math.max(0, parseInt(params.get('since') || '0', 10));
+  const limit = Math.min(4000, Math.max(50, parseInt(params.get('limit') || '1000', 10)));
+  const body = await buildIronpinExport(env, { since, limit });
+  const res = new Response(JSON.stringify(body), {
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  });
+  return res;
+}
+
+/** GET /api/sources — sources list for IronPin (ironpin-sources-v1). */
+export async function handleSources(req, env) {
+  const rows = await env.DB.prepare(
+    `SELECT url, domain, kind, part, name, readable, origin, state,
+            created_at, last_checked_at
+     FROM sources ORDER BY created_at DESC LIMIT 5000`
+  ).all();
+  const list = rows?.results || [];
+  const byKind = {};
+  for (const s of list) byKind[s.kind] = (byKind[s.kind] || 0) + 1;
+  const body = {
+    ok: true,
+    format: 'ironpin-sources-v1',
+    generated_at: new Date().toISOString(),
+    total: list.length,
+    by_kind: byKind,
+    sources: list.map((s) => ({
+      url: s.url,
+      domain: s.domain,
+      kind: s.kind,
+      part: s.part,
+      name: s.name || null,
+      readable: !!s.readable,
+      origin: s.origin,
+      state: s.state || 'new',
+      created_at: s.created_at,
+      last_checked_at: s.last_checked_at,
+    })),
+  };
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=120' },
+  });
+}
+
+/** GET /api/usage — this worker's own D1 usage counters. */
+export async function handleUsage(req, env) {
+  const body = await getUsage(env);
+  return json(new Response(JSON.stringify(body)), 200, body);
+}
+
+/** GET /api/settings — deployment settings (no secrets). */
+export async function handleSettings(req, env) {
+  return json(new Response(JSON.stringify({
+    MAX_PAGES_PER_SCAN: env.MAX_PAGES_PER_SCAN,
+    PAGES_PER_TICK: env.PAGES_PER_TICK,
+    SEARCH_QUERY_LIMIT: env.SEARCH_QUERY_LIMIT,
+    TICK_BUDGET_MS: env.TICK_BUDGET_MS,
+    DAILY_FETCH_LIMIT: env.DAILY_FETCH_LIMIT,
+    IMAGE_EXTRACT_LIMIT: env.IMAGE_EXTRACT_LIMIT,
+    CRON: env.CRON,
+    WRANGLER_BOT_ID: env.WRANGLER_BOT_ID,
+  })), 200, {
+    MAX_PAGES_PER_SCAN: env.MAX_PAGES_PER_SCAN,
+    PAGES_PER_TICK: env.PAGES_PER_TICK,
+    SEARCH_QUERY_LIMIT: env.SEARCH_QUERY_LIMIT,
+    TICK_BUDGET_MS: env.TICK_BUDGET_MS,
+    DAILY_FETCH_LIMIT: env.DAILY_FETCH_LIMIT,
+    IMAGE_EXTRACT_LIMIT: env.IMAGE_EXTRACT_LIMIT,
+    CRON: env.CRON,
+    WRANGLER_BOT_ID: env.WRANGLER_BOT_ID,
+  });
+}
+
+/** POST /api/prices/delete — delete quotes for source URLs (admin cleanup). */
+export async function handlePricesDelete(req, env) {
+  let body;
+  try { body = await readBody(req); } catch (e) { return json(null, 400, { error: 'bad_json' }); }
+  const adminToken = (body.admin_token || '').trim();
+  if (!isValidToken(adminToken)) return json(null, 401, { error: 'bad_token' });
+
+  const urls = Array.isArray(body.urls) ? body.urls.map((u) => String(u)).slice(0, 500) : [];
+  if (!urls.length) return json(null, 400, { error: 'urls_required' });
+
+  const stats = await deleteQuotesForUrls(env, urls);
+  await clearMeta(env, 'report_cache:*');
+  return json(new Response(JSON.stringify(stats)), 200, stats);
+}
+
+/** POST /api/dev/tick — drain queue once (local test only). */
+export async function handleDevTick(req, env) {
+  const out = await drainQueue(env, { maxSteps: 3 });
+  return json(new Response(JSON.stringify(out)), 200, out);
+}
+
+
+/** GET /api/health — D1 connectivity probe. */
+export async function handleHealth(req, env) {
   try {
-    const row = await env.DB.prepare('SELECT value FROM meta WHERE key = ?1')
-      .bind(key)
-      .first();
-    if (!row?.value) return null;
-    const v = JSON.parse(row.value);
-    if (v && typeof v.exp === 'number' && v.exp > Date.now()) return v.data;
-  } catch {
-    /* ignore */
-  }
-  return null;
-}
-
-async function writeCache(env, key, data) {
-  try {
-    await env.DB.prepare(
-      `INSERT INTO meta (key, value, updated_at) VALUES (?1, ?2, ?3)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
-    )
-      .bind(key, JSON.stringify({ exp: Date.now() + CACHE_TTL_MS, data }), Date.now())
-      .run();
-  } catch {
-    /* ignore */
+    await env.DB.prepare('SELECT 1 AS ok').first();
+    return json(new Response(JSON.stringify({ ok: true })), 200, { ok: true });
+  } catch (e) {
+    return json(new Response(JSON.stringify({ ok: false, error: String(e?.message || e) })), 500, { ok: false });
   }
 }
 
-async function bustCaches(env) {
-  try {
-    await env.DB.prepare(
-      `DELETE FROM meta WHERE key IN ('stats_cache','batches_cache')`
-    ).run();
-  } catch {
-    /* ignore */
-  }
+/** GET /api/batches — list batches with per-batch scan counts. */
+export async function handleBatches(req, env) {
+  const batches = await env.DB.prepare(
+    `SELECT b.*,
+       (SELECT COUNT(*) FROM scans s WHERE s.batch_id = b.id) AS scans_total,
+       (SELECT COUNT(*) FROM scans s WHERE s.batch_id = b.id AND s.status IN ('queued','searching','fetching')) AS scans_active,
+       (SELECT COUNT(*) FROM scans s WHERE s.batch_id = b.id AND s.status = 'done') AS scans_done,
+       (SELECT COALESCE(SUM(knowledge_count),0) FROM scans s WHERE s.batch_id = b.id) AS knowledge_count
+     FROM batches b ORDER BY b.id DESC`
+  ).all();
+  const rows = (batches?.results || []).map((b) => ({
+    id: b.id, title: b.title, created_at: b.created_at, updated_at: b.updated_at,
+    scans_total: b.scans_total || 0, scans_active: b.scans_active || 0,
+    scans_done: b.scans_done || 0, knowledge_count: b.knowledge_count || 0,
+  }));
+  return json(new Response(JSON.stringify({ batches: rows })), 200, { batches: rows });
 }
 
-function checkAuth(request, url, env) {
-  if (!env.AUTH_TOKEN) return true;
-  const hdr = request.headers.get('Authorization') || '';
-  const q = url.searchParams.get('token') || '';
-  const provided = hdr.replace(/^Bearer\s+/i, '') || q;
-  return provided === env.AUTH_TOKEN;
+/** POST /api/batches — queue many scans for one batch; returns the report URL. */
+export async function handleCreateBatch(req, env) {
+  let body;
+  try { body = await readBody(req); } catch (e) { return json(null, 400, { error: 'bad_json' }); }
+  const topics = (Array.isArray(body.topics) ? body.topics : String(body.topics || '').split('\n'))
+    .map((t) => String(t).trim()).filter(Boolean).slice(0, 50);
+  if (!topics.length) return json(null, 400, { error: 'topics_required' });
+
+  const now = Date.now();
+  const id = 'b' + now.toString(36);
+  const refreshHours = Math.min(240, Math.max(1, Number(body.refresh_hours) || 24));
+  const autoRefresh = body.auto_refresh === false ? 0 : 1;
+  const insertScan = env.DB.prepare(
+    `INSERT INTO scans (id, batch_id, topic, token, auto_refresh, refresh_hours, status, phase, next_refresh_at, created_at, updated_at)
+     VALUES (?1, ?2, ?3, NULL, ?4, ?5, 'queued', 'search', ?6, ?7, ?7)`
+  );
+  const insertBatch = env.DB.prepare(
+    `INSERT INTO batches (id, title, topics_count, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?4)`
+  );
+  const batch = [];
+  const scanIds = [];
+  for (const t of topics) {
+    const sid = 's' + now.toString(36) + scanIds.length.toString(36);
+    scanIds.push(sid);
+    batch.push(insertScan.bind(sid, id, t, autoRefresh, refreshHours, autoRefresh ? now + refreshHours * 3600_000 : null, now));
+  }
+  batch.push(insertBatch.bind(id, body.title || null, topics.length, now));
+  await env.DB.batch(batch);
+
+  return json(new Response(JSON.stringify({
+    batch: { id, title: body.title || null, topics_count: topics.length },
+    scan_ids: scanIds,
+    report_url: '/report/batch/' + id,
+  })), 202, {
+    batch: { id, title: body.title || null, topics_count: topics.length },
+    scan_ids: scanIds,
+    report_url: '/report/batch/' + id,
+  });
 }
 
-function validTopic(t) {
-  if (typeof t !== 'string') return false;
-  const s = t.trim();
-  if (s.length < 2 || s.length > 200) return false;
-  // eslint-disable-next-line no-control-regex
-  if (/[\x00-\x1F\x7F]/.test(s)) return false;
-  return true;
+/** DELETE /api/batches/:id — remove a batch and its scans/pages/quotes. */
+export async function handleDeleteBatch(req, env, batchId) {
+  const r = await env.DB.prepare('SELECT id FROM batches WHERE id = ?').bind(batchId).first();
+  if (!r) return json(null, 404, { error: 'not_found' });
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM ironpin_quotes WHERE scan_id IN (SELECT id FROM scans WHERE batch_id = ?1)').bind(batchId),
+    env.DB.prepare('DELETE FROM pages WHERE scan_id IN (SELECT id FROM scans WHERE batch_id = ?1)').bind(batchId),
+    env.DB.prepare('DELETE FROM scans WHERE batch_id = ?1').bind(batchId),
+    env.DB.prepare('DELETE FROM batches WHERE id = ?1').bind(batchId),
+  ]);
+  return json(new Response(JSON.stringify({ ok: true })), 200, { ok: true });
 }
 
-function cleanTopic(t) {
-  return String(t ?? '').trim().replace(/\s+/g, ' ');
+/** POST /api/usage/refresh — force a usage counter refresh. */
+export async function handleUsageRefresh(req, env) {
+  const { refreshUsage } = await import('./usage.js');
+  const body = await refreshUsage(env, { force: true });
+  return json(new Response(JSON.stringify(body)), 200, body);
 }
 
-export async function handleApi(request, env, ctx) {
-  const url = new URL(request.url);
-  const path = url.pathname.replace(/\/+$/, '') || '/';
-  const method = request.method.toUpperCase();
+/** POST /api/settings — panel settings (retention_cycle_days). */
+export async function handleSettingsPost(req, env) {
+  let body;
+  try { body = await readBody(req); } catch (e) { return json(null, 400, { error: 'bad_json' }); }
+  if (body.retention_cycle_days != null) {
+    const d = await setRetentionCycleDays(env, body.retention_cycle_days);
+    return json(new Response(JSON.stringify({ retention_cycle_days: d })), 200, { retention_cycle_days: d });
+  }
+  if (body.delete_old_prices != null) {
+    const out = await deleteOldPrices(env, { olderThanDays: body.delete_old_prices });
+    return json(new Response(JSON.stringify(out)), 200, out);
+  }
+  return json(null, 400, { error: 'unknown_setting' });
+}
 
-  // AUTH_TOKEN (optional) protects everything except report GETs —
-  // report URLs are capability links (unguessable UUID) meant to be shared.
-  const isReportGet =
-    method === 'GET' &&
-    (path.startsWith('/api/report/') ||
-      path === '/api/sources' ||
-      path === '/api/ironpin' ||
-      path === '/api/qwen' ||
-      path === '/api/hushyar');
-  if (!isReportGet && !checkAuth(request, url, env)) {
-    return errorJson('unauthorized', 401);
+/** POST /api/prices/delete — delete price quotes older than N days (admin). */
+export async function handlePricesDeleteDays(req, env) {
+  let body;
+  try { body = await readBody(req); } catch (e) { return json(null, 400, { error: 'bad_json' }); }
+  const adminToken = (body.admin_token || '').trim();
+  if (!isValidToken(adminToken)) return json(null, 401, { error: 'bad_token' });
+  const out = await deleteOldPrices(env, { olderThanDays: Number(body.older_than_days) || 31 });
+  return json(new Response(JSON.stringify(out)), 200, out);
+}
+
+/** Route /api/* to handlers. */
+export async function handleApi(req, env, ctx) {
+  const url = new URL(req.url);
+  const method = req.method.toUpperCase();
+  const path = url.pathname;
+
+  if (method === 'GET' && path === '/api/stats') return handleStats(req, env);
+  if (method === 'GET' && path === '/api/health') return handleHealth(req, env);
+  if (method === 'GET' && path === '/api/batches') return handleBatches(req, env);
+  if (method === 'POST' && path === '/api/batches') return handleCreateBatch(req, env);
+  if (method === 'POST' && path === '/api/usage/refresh') return handleUsageRefresh(req, env);
+  if (method === 'POST' && path === '/api/settings') return handleSettingsPost(req, env);
+  if (method === 'GET' && path === '/api/scans') return handleScans(req, env);
+  if (method === 'GET' && path === '/api/ironpin') return handleIronpinExport(req, env, url);
+  if (method === 'GET' && path === '/api/sources') return handleSources(req, env);
+  if (method === 'GET' && path === '/api/usage') return handleUsage(req, env);
+  if (method === 'GET' && path === '/api/settings') return handleSettings(req, env);
+  if (method === 'GET' && path === '/api/report/all') return handleReportAll(req, env);
+
+  if (path.startsWith('/api/report/')) {
+    const token = decodeURIComponent(path.slice('/api/report/'.length));
+    if (method === 'GET') return handleReport(req, env, token);
   }
 
-  // ─── Batches (list mode: one line = one topic → one report link) ───
-
-  if (method === 'POST' && path === '/api/batches') {
-    let body;
-    try {
-      body = await request.json();
-    } catch {
-      return errorJson('invalid_json');
+  let m = /^\/api\/scans\/(\d+)\/(pause|resume|refresh|cancel)$/.exec(path);
+  if (m) {
+    if (method === 'POST') {
+      if (m[2] === 'pause') return handlePauseScan(req, env, m[1]);
+      if (m[2] === 'resume') return handleResumeScan(req, env, m[1]);
+      if (m[2] === 'refresh') return handleRefreshScan(req, env, m[1]);
+      if (m[2] === 'cancel') return handleCancelScan(req, env, m[1]);
     }
-
-    let raw = body?.topics;
-    if (Array.isArray(raw)) raw = raw.join('\n');
-    const lines = String(raw ?? '')
-      .split(/\r?\n/)
-      .map(cleanTopic)
-      .filter(Boolean);
-
-    if (!lines.length) return errorJson('topics_required');
-    const MAX_TOPICS = 50;
-    if (lines.length > MAX_TOPICS) return errorJson('too_many_topics_max_' + MAX_TOPICS);
-
-    const seen = new Set();
-    const topics = [];
-    for (const t of lines) {
-      if (!validTopic(t)) return errorJson('topic_length_2_to_200');
-      const key = t.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      topics.push(t);
-    }
-    if (!topics.length) return errorJson('topics_required');
-
-    const title = cleanTopic(String(body?.title ?? '')).slice(0, 120) || null;
-    const autoRefresh = body?.auto_refresh === false ? 0 : 1;
-    let refreshHours = parseInt(body?.refresh_hours ?? 24, 10);
-    if (!Number.isFinite(refreshHours) || refreshHours < 1) refreshHours = 24;
-    if (refreshHours > 24 * 30) refreshHours = 24 * 30;
-
-    const batchId = crypto.randomUUID();
-    const t = now();
-    const nextRefresh = autoRefresh ? t + refreshHours * 3600_000 : null;
-
-    const insertScan = env.DB.prepare(
-      `INSERT INTO scans (id, batch_id, topic, status, phase, auto_refresh, refresh_hours,
-                          next_refresh_at, created_at, updated_at)
-       VALUES (?1, ?2, ?3, 'queued', 'search', ?4, ?5, ?6, ?7, ?7)`
-    );
-    const stmts = [
-      env.DB.prepare(
-        `INSERT INTO batches (id, title, topics_count, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?4)`
-      ).bind(batchId, title, topics.length, t),
-    ];
-    const scanIds = [];
-    for (const topic of topics) {
-      const sid = crypto.randomUUID();
-      scanIds.push(sid);
-      stmts.push(insertScan.bind(sid, batchId, topic, autoRefresh, refreshHours, nextRefresh, t));
-    }
-    await env.DB.batch(stmts);
-    await bustCaches(env);
-
-    const batch = await getBatch(env, batchId);
-    return json(
-      {
-        ok: true,
-        batch,
-        scan_ids: scanIds,
-        report_url: '/report/batch/' + batchId,
-        api_url: '/api/report/batch/' + batchId,
-      },
-      201
-    );
+  }
+  m = /^\/api\/batches\/(\w+)$/.exec(path);
+  if (m) {
+    if (method === 'DELETE') return handleDeleteBatch(req, env, m[1]);
+  }
+  m = /^\/api\/scans\/(\d+)$/.exec(path);
+  if (m) {
+    if (method === 'GET') return handleScanDetail(req, env, m[1]);
+    if (method === 'DELETE') return handleCancelScan(req, env, m[1]);
   }
 
-  if (method === 'GET' && path === '/api/batches') {
-    const cachedBatches = await readCache(env, 'batches_cache');
-    if (cachedBatches) return json(cachedBatches);
-    const rows = await env.DB.prepare(
-      `SELECT b.id, b.title, b.topics_count, b.created_at, b.updated_at,
-              (SELECT COUNT(*) FROM scans s WHERE s.batch_id = b.id) AS scans_total,
-              (SELECT COUNT(*) FROM scans s WHERE s.batch_id = b.id AND s.status = 'done') AS scans_done,
-              (SELECT COUNT(*) FROM scans s WHERE s.batch_id = b.id
-                 AND s.status IN ('queued','searching','fetching')) AS scans_active,
-              (SELECT COALESCE(SUM(s.knowledge_count), 0) FROM scans s WHERE s.batch_id = b.id) AS knowledge_count
-       FROM batches b
-       ORDER BY b.created_at DESC
-       LIMIT 50`
-    ).all();
-    const out = { ok: true, batches: rows.results || [] };
-    await writeCache(env, 'batches_cache', out);
-    return json(out);
-  }
-
-  if (method === 'GET' && /^\/api\/batches\/[^/]+$/.test(path)) {
-    const id = decodeURIComponent(path.split('/').pop());
-    const batch = await getBatch(env, id);
-    if (!batch) return errorJson('not_found', 404);
-    const scans = await env.DB.prepare(
-      `SELECT id, topic, status, phase, pages_total, pages_done, knowledge_count, error, updated_at
-       FROM scans WHERE batch_id = ?1 ORDER BY created_at ASC`
-    )
-      .bind(id)
-      .all();
-    return json({
-      ok: true,
-      batch,
-      scans: scans.results || [],
-      report_url: '/report/batch/' + id,
-      api_url: '/api/report/batch/' + id,
-    });
-  }
-
-  if (method === 'DELETE' && /^\/api\/batches\/[^/]+$/.test(path)) {
-    const id = decodeURIComponent(path.split('/').pop());
-    const batch = await getBatch(env, id);
-    if (!batch) return errorJson('not_found', 404);
-    const scanIds =
-      (await env.DB.prepare('SELECT id FROM scans WHERE batch_id = ?1').bind(id).all()).results ||
-      [];
-    const stmts = [];
-    for (const s of scanIds) {
-      stmts.push(env.DB.prepare('DELETE FROM knowledge WHERE scan_id = ?1').bind(s.id));
-      stmts.push(env.DB.prepare('DELETE FROM pages WHERE scan_id = ?1').bind(s.id));
-      stmts.push(env.DB.prepare('DELETE FROM scans WHERE id = ?1').bind(s.id));
-    }
-    stmts.push(env.DB.prepare('DELETE FROM batches WHERE id = ?1').bind(id));
-    await env.DB.batch(stmts);
-    await bustCaches(env);
-    return json({ ok: true, deleted_scans: scanIds.length });
-  }
-
-  // One Qwen-ready JSON for the whole list
-  if (method === 'GET' && /^\/api\/report\/batch\/[^/]+$/.test(path)) {
-    const id = decodeURIComponent(path.split('/').pop());
-    const batch = await getBatch(env, id);
-    if (!batch) return errorJson('not_found', 404);
-    const scans =
-      (
-        await env.DB.prepare(
-          `SELECT id, topic, status, pages_total, pages_done, knowledge_count, error
-           FROM scans WHERE batch_id = ?1 ORDER BY created_at ASC`
-        )
-          .bind(id)
-          .all()
-      ).results || [];
-    const items =
-      (
-        await env.DB.prepare(
-          `SELECT k.* FROM knowledge k
-           JOIN scans s ON s.id = k.scan_id
-           WHERE s.batch_id = ?1
-           ORDER BY s.created_at, k.domain,
-                    CASE k.kind WHEN 'chunk' THEN 0 ELSE 1 END, k.chunk_index, k.id`
-        )
-          .bind(id)
-          .all()
-      ).results || [];
-    return json(toQwenBatchExport(batch, scans, items));
-  }
-
-  // ─── Single scans ────────────────────────────────────────────────
-
-  if (method === 'POST' && path === '/api/scans') {
-    let body;
-    try {
-      body = await request.json();
-    } catch {
-      return errorJson('invalid_json');
-    }
-    const topic = cleanTopic(body?.topic);
-    if (!topic) return errorJson('topic_required');
-    if (!validTopic(topic)) return errorJson('topic_length_2_to_200');
-
-    const autoRefresh = body?.auto_refresh === false ? 0 : 1;
-    let refreshHours = parseInt(body?.refresh_hours ?? 24, 10);
-    if (!Number.isFinite(refreshHours) || refreshHours < 1) refreshHours = 24;
-    if (refreshHours > 24 * 30) refreshHours = 24 * 30;
-
-    const id = crypto.randomUUID();
-    const t = now();
-    await env.DB.prepare(
-      `INSERT INTO scans (id, topic, status, phase, auto_refresh, refresh_hours,
-                          next_refresh_at, created_at, updated_at)
-       VALUES (?1, ?2, 'queued', 'search', ?3, ?4, ?5, ?6, ?6)`
-    )
-      .bind(id, topic, autoRefresh, refreshHours, autoRefresh ? t + refreshHours * 3600_000 : null, t)
-      .run();
-    await bustCaches(env);
-
-    const scan = await getScan(env, id);
-    return json({ ok: true, scan, report_url: '/report/' + id, api_url: '/api/report/' + id }, 201);
-  }
-
-  if (method === 'GET' && path === '/api/scans') {
-    const rows = await env.DB.prepare(
-      `SELECT id, batch_id, topic, status, phase, auto_refresh, refresh_hours, next_refresh_at,
-              pages_total, pages_done, knowledge_count, engines_used, error,
-              created_at, updated_at
-       FROM scans ORDER BY created_at DESC LIMIT 100`
-    ).all();
-    return json({ ok: true, scans: rows.results || [] });
-  }
-
-  if (method === 'GET' && /^\/api\/scans\/[^/]+$/.test(path)) {
-    const id = decodeURIComponent(path.split('/').pop());
-    const scan = await getScan(env, id);
-    if (!scan) return errorJson('not_found', 404);
-
-    const pages = await env.DB.prepare(
-      `SELECT id, url, domain, title, source, status, http_status, error, chars, fetched_at
-       FROM pages WHERE scan_id = ?1 ORDER BY id LIMIT 50`
-    )
-      .bind(id)
-      .all();
-
-    const samples = await env.DB.prepare(
-      `SELECT id, kind, claim, url, domain, confidence, tokens, tags
-       FROM knowledge WHERE scan_id = ?1
-       ORDER BY CASE kind WHEN 'chunk' THEN 0 ELSE 1 END, chunk_index, id
-       LIMIT 20`
-    )
-      .bind(id)
-      .all();
-
-    return json({
-      ok: true,
-      scan,
-      pages: pages.results || [],
-      knowledge_sample: samples.results || [],
-      report_url: scan.batch_id ? '/report/batch/' + scan.batch_id : '/report/' + scan.id,
-      api_url: scan.batch_id ? '/api/report/batch/' + scan.batch_id : '/api/report/' + scan.id,
-    });
-  }
-
-  if (method === 'DELETE' && /^\/api\/scans\/[^/]+$/.test(path)) {
-    const id = decodeURIComponent(path.split('/').pop());
-    const scan = await getScan(env, id);
-    if (!scan) return errorJson('not_found', 404);
-    await env.DB.batch([
-      env.DB.prepare('DELETE FROM knowledge WHERE scan_id = ?1').bind(id),
-      env.DB.prepare('DELETE FROM pages WHERE scan_id = ?1').bind(id),
-      env.DB.prepare('DELETE FROM scans WHERE id = ?1').bind(id),
-    ]);
-    await bustCaches(env);
-    return json({ ok: true });
-  }
-
-  if (method === 'POST' && /^\/api\/scans\/[^/]+\/refresh$/.test(path)) {
-    const id = decodeURIComponent(path.split('/').slice(-2)[0]);
-    const scan = await getScan(env, id);
-    if (!scan) return errorJson('not_found', 404);
-    await env.DB.batch([
-      env.DB.prepare(
-        `UPDATE scans SET status = 'queued', phase = 'search', error = NULL,
-           pages_done = 0, knowledge_count = 0, updated_at = ?1,
-           next_refresh_at = ?2 WHERE id = ?3`
-      ).bind(now(), scan.auto_refresh ? now() + (scan.refresh_hours || 24) * 3600_000 : null, id),
-      env.DB.prepare(
-        `UPDATE pages SET status = 'pending', claimed_at = NULL, attempts = 0
-         WHERE scan_id = ?1`
-      ).bind(id),
-    ]);
-    await bustCaches(env);
-    // Start processing immediately (prioritize this scan), don't wait for cron.
-    const work = drainQueue(env, { maxSteps: 40, prioritizeId: id }).catch((e) => {
-      console.error('refresh drain failed', e);
-      return { steps: 0, remaining: -1 };
-    });
-    if (ctx && typeof ctx.waitUntil === 'function') {
-      ctx.waitUntil(work);
-      return json({ ok: true, scan_id: id, status: 'queued', started: true, mode: 'background' });
-    }
-    const result = await work;
-    return json({ ok: true, scan_id: id, status: 'queued', started: true, mode: 'sync', ...result });
-  }
-
-  // ─── Settings (retention cycle days etc.) ───
-  if (method === 'GET' && path === '/api/settings') {
-    const cycleDays = await getRetentionCycleDays(env);
-    return json({ ok: true, retention_cycle_days: cycleDays });
-  }
-
-  if (method === 'POST' && path === '/api/settings') {
-    let body;
-    try {
-      body = await request.json();
-    } catch {
-      return errorJson('invalid_json');
-    }
-    if (body?.retention_cycle_days !== undefined) {
-      try {
-        await setRetentionCycleDays(env, body.retention_cycle_days);
-        await bustCaches(env);
-      } catch (e) {
-        return errorJson(String(e?.message || e));
-      }
-    }
-    const cycleDays = await getRetentionCycleDays(env);
-    return json({ ok: true, retention_cycle_days: cycleDays });
-  }
-
-  // ─── ALL knowledge (live link) + qwen/hushyar aliases + target split ───
-  // /api/report/all?target=ironpin → only rows IronPin can consume (price,
-  // specs, definitions, calculations). /api/qwen → full RAG for the model.
-  // /api/hushyar → hushyar-knowledge-v1 (counted sections + link map).
-  if (
-    method === 'GET' &&
-    (path === '/api/report/all' || path === '/api/qwen' || path === '/api/hushyar')
-  ) {
-    let items = [];
-    try {
-      const rows = await env.DB.prepare(
-        `SELECT * FROM knowledge
-         ORDER BY last_verified_at DESC, domain,
-                  CASE kind WHEN 'chunk' THEN 0 ELSE 1 END, id
-         LIMIT 20000`
-      ).all();
-      items = rows.results || [];
-    } catch {
-      items = [];
-    }
-    const target = url.searchParams.get('target') || '';
-    if (target === 'ironpin' || target === 'qwen') items = filterByTarget(items, target);
-    // Distinct counts from fetched rows — full-table COUNT(DISTINCT) burned D1 reads.
-    const topics = new Set(items.map((i) => i.topic).filter((x) => x != null)).size;
-    const sources = new Set(items.map((i) => i.domain).filter((x) => x != null)).size;
-    const categories = new Set(items.map((i) => i.category).filter((x) => x != null)).size;
-    if (path === '/api/hushyar') {
-      return jsonMin(toHushyarExport(items, { topics, sources }), 200, 'public, max-age=120');
-    }
-    const doc = toQwenAllExport(items, { topics, sources, categories });
-    if (path === '/api/qwen') doc.feed = 'qwen-model';
-    if (target) doc.target = target;
-    return jsonMin(doc, 200, 'public, max-age=120');
-  }
-
-  // ─── IronPin Quote.toJson export (since = incremental for external mode) ───
-  if (method === 'GET' && path === '/api/ironpin') {
-    const since = parseInt(url.searchParams.get('since') || '0', 10) || 0;
-    return await streamIronpinExport(env.DB, { since });
-  }
-
-  // ─── Sources list (for IronPin) ───
-  if (method === 'GET' && path === '/api/sources') {
-    const rows = await env.DB.prepare(
-      `SELECT url, domain, kind, part, name, readable, origin, state,
-              created_at, last_checked_at
-       FROM sources ORDER BY created_at DESC LIMIT 5000`
-    ).all();
-    const list = rows.results || [];
-    const byKind = {};
-    for (const s of list) byKind[s.kind] = (byKind[s.kind] || 0) + 1;
-    return jsonMin({
-      ok: true,
-      format: 'ironpin-sources-v1',
-      generated_at: new Date().toISOString(),
-      total: list.length,
-      by_kind: byKind,
-      sources: list.map((s) => ({
-        url: s.url,
-        domain: s.domain,
-        kind: s.kind,
-        part: s.part,
-        name: s.name || null,
-        readable: !!s.readable,
-        origin: s.origin,
-        state: s.state || 'new',
-        created_at: s.created_at,
-        last_checked_at: s.last_checked_at,
-      })),
-    }, 200, 'public, max-age=120');
-  }
-
-  // ─── Daily CF / D1 usage ───
-  if (method === 'GET' && path === '/api/usage') {
-    const snap = await getUsage(env);
-    return json({ ok: true, usage: snap });
-  }
-
-  if (method === 'POST' && path === '/api/usage/refresh') {
-    const snap = await refreshUsage(env, { force: true });
-    return json({ ok: true, usage: snap });
-  }
-
-  // ─── MANUAL price deletion (price rows only — never technical knowledge) ───
+  if (method === 'POST' && path === '/api/scans') return handleCreateScan(req, env);
   if (method === 'POST' && path === '/api/prices/delete') {
-    let body;
-    try {
-      body = await request.json();
-    } catch {
-      body = {};
-    }
-    const days = parseInt(body?.older_than_days ?? '', 10);
-    if (!Number.isFinite(days) || days < 1 || days > 3650) {
-      return errorJson('older_than_days_required_1_to_3650');
-    }
-    try {
-      const result = await deleteOldPrices(env, { olderThanDays: days });
-      return json({ ok: true, scope: 'price_only', ...result });
-    } catch (e) {
-      return errorJson(String(e?.message || e), 500);
-    }
+    const p = new URL(req.url).searchParams;
+    if (p.has('older_than_days')) return handlePricesDeleteDays(req, env);
+    return handlePricesDelete(req, env);
   }
+  if (method === 'POST' && path === '/api/dev/tick') return handleDevTick(req, env);
 
-  if (method === 'GET' && /^\/api\/report\/[^/]+$/.test(path)) {
-    const id = decodeURIComponent(path.split('/').pop());
-    const scan = await getScan(env, id);
-    if (!scan) return errorJson('not_found', 404);
-    const rows = await env.DB.prepare(
-      `SELECT * FROM knowledge WHERE scan_id = ?1
-       ORDER BY domain, CASE kind WHEN 'chunk' THEN 0 ELSE 1 END, chunk_index, id`
-    )
-      .bind(id)
-      .all();
-    return json(toQwenExport(scan, rows.results || []));
-  }
-
-  if (method === 'GET' && path === '/api/stats') {
-    const cachedStats = await readCache(env, 'stats_cache');
-    if (cachedStats) return json(cachedStats);
-    const [scans, knowledge, pages, active, batches, sources, retention, finder] =
-      await Promise.all([
-        env.DB.prepare('SELECT COUNT(*) AS c FROM scans').first(),
-        env.DB.prepare('SELECT COUNT(*) AS c FROM knowledge').first(),
-        env.DB.prepare('SELECT COUNT(*) AS c FROM pages').first(),
-        env.DB.prepare(
-          `SELECT COUNT(*) AS c FROM scans WHERE status IN ('queued','searching','fetching')`
-        ).first(),
-        env.DB.prepare('SELECT COUNT(*) AS c FROM batches').first(),
-        env.DB.prepare('SELECT COUNT(*) AS c FROM sources').first().catch(() => ({ c: 0 })),
-        env.DB.prepare(`SELECT value FROM meta WHERE key = 'price_retention'`)
-          .first()
-          .catch(() => null),
-        env.DB.prepare(`SELECT value FROM meta WHERE key = 'finder_state'`)
-          .first()
-          .catch(() => null),
-      ]);
-    let retentionState = null;
-    let finderState = null;
-    try {
-      retentionState = retention?.value ? JSON.parse(retention.value) : null;
-    } catch { /* ignore */ }
-    try {
-      finderState = finder?.value ? JSON.parse(finder.value) : null;
-    } catch { /* ignore */ }
-    const out = {
-      ok: true,
-      scans: scans?.c || 0,
-      knowledge: knowledge?.c || 0,
-      pages: pages?.c || 0,
-      active: active?.c || 0,
-      batches: batches?.c || 0,
-      sources: sources?.c || 0,
-      retention: retentionState,
-      finder: finderState,
-      db: env.DB_NAME || 'qwen_scanner',
-      chunker: { target_chars: 900, overlap_chars: 140, min_chars: 200, target_tokens: 450 },
-      ttl_days: 45,
-      engines: ['bing', 'bing-rss', 'ddg', 'gerdoo', 'zarebin'],
-      crons: ['*/5 * * * *', '0 */6 * * *'],
-      max_topics_per_batch: 50,
-      price_retention: {
-        near_cap_days: 3,
-        monthly_cycle_days: await getRetentionCycleDays(env),
-        monthly_keep_hours: 24,
-      },
-      settings: {
-        retention_cycle_days: await getRetentionCycleDays(env),
-        price_delete_mode: 'manual',
-        links: {
-          all_knowledge: '/report/all',
-          all_knowledge_json: '/api/report/all',
-          sources: '/report/sources',
-          sources_json: '/api/sources',
-        },
-      },
-    };
-    await writeCache(env, 'stats_cache', out);
-    return json(out);
-  }
-
-  if (method === 'GET' && path === '/api/health') {
-    try {
-      await env.DB.prepare('SELECT 1').run();
-      return json({ ok: true, db: 'up' });
-    } catch (e) {
-      return json({ ok: false, db: 'down', error: String(e?.message || e) }, 503);
-    }
-  }
-
-  return errorJson('not_found', 404);
-}
-
-async function getScan(env, id) {
-  if (!/^[0-9a-fA-F-]{36}$/.test(id)) return null;
-  return env.DB.prepare(
-    `SELECT id, batch_id, topic, status, phase, auto_refresh, refresh_hours, next_refresh_at,
-            pages_total, pages_done, knowledge_count, engines_used, error,
-            created_at, updated_at
-     FROM scans WHERE id = ?1`
-  )
-    .bind(id)
-    .first();
-}
-
-async function getBatch(env, id) {
-  if (!/^[0-9a-fA-F-]{36}$/.test(id)) return null;
-  return env.DB.prepare(
-    `SELECT id, title, topics_count, created_at, updated_at
-     FROM batches WHERE id = ?1`
-  )
-    .bind(id)
-    .first();
+  return json(null, 404, { error: 'not_found', path });
 }

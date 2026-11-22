@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>اسکنر Qwen — پنل</title>
+<title>اسکنر آیرون پین — پنل</title>
 <style>
 :root {
   color-scheme: dark;
@@ -43,11 +43,11 @@ h1 span { color: var(--accent); }
 form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
 .field { flex: 1 1 280px; display: flex; flex-direction: column; gap: 6px; }
 label { font-size: .82rem; color: var(--muted); }
-input[type="text"], input[type="number"], select {
+input[type="text"], input[type="number"], select, textarea {
   width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
   background: var(--bg); color: var(--text); font-size: .95rem; font-family: inherit;
 }
-input:focus, select:focus { outline: none; border-color: var(--accent); }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
 .row { display: flex; flex-wrap: wrap; gap: 10px; width: 100%; }
 .row .field { flex: 1 1 140px; }
 .check { display: flex; align-items: center; gap: 8px; font-size: .88rem; color: var(--muted); margin-top: 4px; }
@@ -116,7 +116,7 @@ code { background: var(--panel); padding: 1px 6px; border-radius: 4px; font-size
 <body>
 <div class="wrap">
   <header>
-    <h1>🔍 اسکنر <span>Qwen</span> — وب → دیتابیس</h1>
+    <h1>🔍 اسکنر <span>آیرون پین</span> — آینه اسکنر داخلی</h1>
     <div class="health"><span class="dot" id="healthDot"></span><span id="healthTxt">در حال اتصال…</span></div>
   </header>
 
@@ -127,7 +127,7 @@ code { background: var(--panel); padding: 1px 6px; border-radius: 4px; font-size
       <div class="stat"><div class="num" id="stScans">—</div><div class="lbl">اسکن</div></div>
       <div class="stat"><div class="num" id="stActive">—</div><div class="lbl">فعال</div></div>
       <div class="stat"><div class="num" id="stPages">—</div><div class="lbl">صفحه</div></div>
-      <div class="stat"><div class="num" id="stKnowledge">—</div><div class="lbl">آیتم دانش</div></div>
+      <div class="stat"><div class="num" id="stKnowledge">—</div><div class="lbl">ردیف قیمت</div></div>
       <div class="stat"><div class="num" id="stBatches">—</div><div class="lbl">لیست</div></div>
       <div class="stat"><div class="num" id="stSources">—</div><div class="lbl">منابع</div></div>
     </div>
@@ -137,15 +137,13 @@ code { background: var(--panel); padding: 1px 6px; border-radius: 4px; font-size
   <div class="card">
     <h2>لینک‌های پایدار</h2>
     <div class="row" style="gap:10px;flex-wrap:wrap">
-      <a class="btn-ghost" href="/report/all" target="_blank" style="text-decoration:none;padding:8px 14px;border:1px solid var(--border);border-radius:8px">📚 کل دانش (زنده)</a>
-      <a class="btn-ghost" href="/api/report/all" target="_blank" style="text-decoration:none;padding:8px 14px;border:1px solid var(--border);border-radius:8px">JSON کل دانش</a>
+      <a class="btn-ghost" href="/report/all" target="_blank" style="text-decoration:none;padding:8px 14px;border:1px solid var(--border);border-radius:8px">📚 گزارش‌ها (زنده)</a>
+      <a class="btn-ghost" href="/api/report/all" target="_blank" style="text-decoration:none;padding:8px 14px;border:1px solid var(--border);border-radius:8px">JSON گزارش‌ها</a>
       <a class="btn-ghost" href="/api/ironpin" target="_blank" style="text-decoration:none;padding:8px 14px;border:1px solid var(--border);border-radius:8px">🔗 خروجی ردیف‌های IronPin (Quote)</a>
-      <a class="btn-ghost" href="/api/qwen" target="_blank" style="text-decoration:none;padding:8px 14px;border:1px solid var(--border);border-radius:8px">🧠 JSON مدل کوئن</a>
-      <a class="btn-ghost" href="/api/hushyar" target="_blank" style="text-decoration:none;padding:8px 14px;border:1px solid var(--border);border-radius:8px">🤖 JSON هوشیار</a>
       <a class="btn-ghost" href="/report/sources" target="_blank" style="text-decoration:none;padding:8px 14px;border:1px solid var(--border);border-radius:8px">فهرست منابع</a>
       <a class="btn-ghost" href="/api/sources" target="_blank" style="text-decoration:none;padding:8px 14px;border:1px solid var(--border);border-radius:8px">JSON منابع</a>
     </div>
-    <div class="sub" style="margin-top:10px">هر منبع/دستهٔ جدید خودکار داخل «کل دانش» می‌آید. تفکیک دانش: <code>/api/report/all?target=ironpin</code> برای آیرون‌پین و <code>/api/report/all?target=qwen</code> برای کوئن.</div>
+    <div class="sub" style="margin-top:10px">اسکنر آینه‌ای از اسکنر داخلی آیرون پین است — فقط ردیف‌های قیمت آیرون‌پین ذخیره و ارائه می‌شود؛ مسیر RAG/دانش کوئن حذف شده است.</div>
   </div>
 
   <!-- new scan (single) -->
@@ -186,7 +184,7 @@ code { background: var(--panel); padding: 1px 6px; border-radius: 4px; font-size
       </div>
       <div class="field" style="margin-top:8px">
         <label for="batchTopics">موضوعات — هر خط یک موضوع (حداکثر ۵۰)</label>
-        <textarea id="batchTopics" rows="6" placeholder="قیمت تیرآهن&#10;قیمت میلگرد&#10;قیمت ورق گالوانیزه&#10;قیمت پروفیل" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.95rem;font-family:inherit;resize:vertical" required></textarea>
+        <textarea id="batchTopics" rows="6" placeholder="قیمت تیرآهن&#10;قیمت میلگرد&#10;قیمت ورق گالوانیزه&#10;قیمت پروفیل" style="resize:vertical" required></textarea>
       </div>
       <div class="row" style="margin-top:8px">
         <div class="field">
@@ -223,11 +221,9 @@ code { background: var(--panel); padding: 1px 6px; border-radius: 4px; font-size
   <!-- db settings -->
   <div class="card">
     <h2>تنظیمات دیتابیس و موتور</h2>
-    <div class="db-grid" id="dbGrid">
+    <div class="db-grid">
       <div><div class="k">D1 Database</div><div class="v" id="dbName">—</div></div>
-      <div><div class="k">فرمت ذخیره</div><div class="v">qwen-knowledge-v1</div></div>
-      <div><div class="k">چانک</div><div class="v" id="chunkCfg">—</div></div>
-      <div><div class="k">TTL</div><div class="v" id="ttlCfg">—</div></div>
+      <div><div class="k">فرمت خروجی</div><div class="v">ironpin-quotes-v1</div></div>
       <div><div class="k">موتورهای جستجو</div><div class="v" id="enginesCfg">—</div></div>
       <div><div class="k">Cron</div><div class="v" id="cronsCfg">—</div></div>
       <div><div class="k">نگهداری قیمت</div><div class="v" id="retentionCfg">—</div></div>
@@ -259,7 +255,7 @@ code { background: var(--panel); padding: 1px 6px; border-radius: 4px; font-size
     <!-- MANUAL price delete only -->
     <div class="row" style="margin-top:16px;align-items:flex-end;border-top:1px solid var(--border);padding-top:14px">
       <div class="field">
-        <label for="priceDeleteDays">حذف دستی قیمت‌های قدیمی (روز) — فقط قیمت، نه دانش فنی</label>
+        <label for="priceDeleteDays">حذف دستی قیمت‌های قدیمی (روز) — فقط ردیف قیمت</label>
         <input type="number" id="priceDeleteDays" value="31" min="1" max="3650">
       </div>
       <div class="field" style="flex:0 0 auto">
@@ -267,11 +263,11 @@ code { background: var(--panel); padding: 1px 6px; border-radius: 4px; font-size
         <button type="button" class="btn-danger" id="deletePrices">🗑 حذف فقط قیمت‌ها</button>
       </div>
     </div>
-    <div class="sub" style="margin-top:8px">حذف خودکار غیرفعال است — فقط با این دکمه اجرا می‌شود. اطلاعات توضیحی و دانش فنی هرگز پاک نمی‌شود.</div>
+    <div class="sub" style="margin-top:8px">حذف خودکار غیرفعال است — فقط با این دکمه اجرا می‌شود.</div>
   </div>
 
   <footer>
-    ذخیره‌سازی: Cloudflare D1 · اجرا: Cron Triggers · فرمت: قابل فهم Qwen (چانک ۹۰۰ حرف + متادیتا)
+    ذخیره‌سازی: Cloudflare D1 · اجرا: Cron Triggers · فرمت: ironpin-quotes-v1 — آینه اسکنر داخلی آیرون پین
   </footer>
 </div>
 
@@ -317,6 +313,12 @@ function fmtTime(ms) {
   try { return new Date(ms).toLocaleString('fa-IR'); } catch { return String(ms); }
 }
 
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function renderScans(scans) {
   const el = $('scansList');
   if (!scans.length) {
@@ -325,7 +327,6 @@ function renderScans(scans) {
   }
   el.innerHTML = scans.map((s) => {
     const pct = s.pages_total > 0 ? Math.round((s.pages_done / s.pages_total) * 100) : (s.status === 'done' ? 100 : 0);
-    const active = ['queued', 'searching', 'fetching'].includes(s.status);
     return `
 <div class="scan" data-id="${s.id}">
   <div class="info">
@@ -333,7 +334,7 @@ function renderScans(scans) {
     <div class="sub">
       <span class="badge ${s.status}">${STATUS_FA[s.status] || s.status}</span>
       <span>📄 ${s.pages_done}/${s.pages_total}</span>
-      <span>🧠 ${s.knowledge_count}</span>
+      <span>💰 ${s.knowledge_count}</span>
       <span>🔄 ${fmtTime(s.updated_at)}</span>
       ${s.auto_refresh ? `<span>⏰ هر ${s.refresh_hours}س</span>` : ''}
       ${s.error ? `<span style="color:var(--red)">${esc(s.error)}</span>` : ''}
@@ -350,41 +351,32 @@ function renderScans(scans) {
   }).join('');
 }
 
-function esc(s) {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
 async function loadStats() {
   try {
     const [stats, health] = await Promise.all([
       api('/api/stats'),
       api('/api/health'),
     ]);
-    $('stScans').textContent = stats.scans;
-    $('stActive').textContent = stats.active;
-    $('stPages').textContent = stats.pages;
-    $('stKnowledge').textContent = stats.knowledge;
-    if ($('stBatches')) $('stBatches').textContent = stats.batches ?? '—';
-    if ($('stSources')) $('stSources').textContent = stats.sources ?? '—';
-    $('dbName').textContent = stats.db;
-    $('chunkCfg').textContent = `${stats.chunker.target_chars} / ${stats.chunker.overlap_chars} / ${stats.chunker.min_chars} (tok ${stats.chunker.target_tokens})`;
-    $('ttlCfg').textContent = `${stats.ttl_days} روز`;
-    $('enginesCfg').textContent = stats.engines.join('، ');
-    $('cronsCfg').textContent = stats.crons.join(' · ');
+    $('stScans').textContent = stats.scans ?? 0;
+    $('stActive').textContent = stats.active ?? 0;
+    $('stPages').textContent = stats.pages ?? 0;
+    $('stKnowledge').textContent = stats.knowledge ?? 0;
+    if ($('stBatches')) $('stBatches').textContent = stats.batches ?? 0;
+    if ($('stSources')) $('stSources').textContent = stats.sources ?? 0;
+    $('dbName').textContent = stats.db || 'D1';
+    $('enginesCfg').textContent = (stats.engines || []).join('، ') || '—';
+    $('cronsCfg').textContent = (stats.crons || []).join(' · ');
     if ($('retentionCfg') && stats.price_retention) {
-      const cyc = stats.price_retention.monthly_cycle_days ?? stats.settings?.retention_cycle_days ?? 31;
+      const cyc = stats.settings?.retention_cycle_days ?? stats.price_retention?.older_than_days ?? 31;
       $('retentionCfg').textContent =
-        `نزدیک سقف: ۳ روز · هر ${cyc} روز: ۲۴ ساعت`;
+        `حذف دستی · چرخه ${cyc} روز`;
     }
-    if ($('retentionDays')) {
-      const cyc = stats.settings?.retention_cycle_days ?? stats.price_retention?.monthly_cycle_days ?? 31;
+    if ($('retentionDays') && stats.settings) {
+      const cyc = stats.settings.retention_cycle_days ?? 31;
       if (document.activeElement !== $('retentionDays')) $('retentionDays').value = cyc;
     }
-    if ($('finderCfg') && stats.finder) {
-      $('finderCfg').textContent =
-        `round ${stats.finder.round ?? 0} · منابع ${stats.finder.total ?? stats.sources ?? 0}`;
+    if ($('finderCfg') && stats.sources != null) {
+      $('finderCfg').textContent = `منابع کشف‌شده: ${stats.sources}`;
     }
     $('healthDot').className = health.ok ? 'dot' : 'dot down';
     $('healthTxt').textContent = health.ok ? 'D1 متصل' : 'D1 قطع';
@@ -430,14 +422,13 @@ function renderBatches(batches) {
     <div class="sub">
       <span class="badge ${status}">${BATCH_STATUS_FA[status] || status}</span>
       <span>📝 ${done}/${total} موضوع</span>
-      <span>🧠 ${b.knowledge_count || 0} دانش</span>
+      <span>💰 ${b.knowledge_count || 0} قیمت</span>
       <span>🔄 ${fmtTime(b.updated_at)}</span>
     </div>
     <div class="progress"><i style="width:${pct}%"></i></div>
   </div>
   <div class="actions">
     <a class="btn-ghost" href="/report/batch/${esc(b.id)}" target="_blank">📎 لینک یکپارچه</a>
-    <a class="btn-ghost" href="/api/report/batch/${esc(b.id)}" target="_blank">{ } JSON کل</a>
     <button class="btn-danger" data-act="del-batch">✕ حذف</button>
   </div>
 </div>`;
@@ -467,13 +458,12 @@ $('scansList').addEventListener('click', async (ev) => {
   btn.disabled = true;
   try {
     if (btn.dataset.act === 'delete') {
-      if (!confirm('این اسکن و دانش‌هایش حذف شود؟')) return;
+      if (!confirm('این اسکن و ردیفهایش حذف شود؟')) return;
       await api('/api/scans/' + id, { method: 'DELETE' });
       toast('حذف شد');
     } else if (btn.dataset.act === 'refresh') {
       await api('/api/scans/' + id + '/refresh', { method: 'POST' });
       toast('بروزرسانی شروع شد…');
-      pollMs = 10000;
     }
     await refreshAll();
   } catch (e) {
@@ -490,7 +480,7 @@ $('batchesList').addEventListener('click', async (ev) => {
   const id = row?.dataset?.id;
   if (!id) return;
   if (btn.dataset.act !== 'del-batch') return;
-  if (!confirm('این لیست، همه اسکن‌ها و دانش‌هایش حذف شود؟')) return;
+  if (!confirm('این لیست، همه اسکن‌ها و ردیفهایش حذف شود؟')) return;
   btn.disabled = true;
   try {
     await api('/api/batches/' + id, { method: 'DELETE' });
@@ -523,7 +513,6 @@ $('batchForm').addEventListener('submit', async (ev) => {
     toast(`لیست ${n} موضوعی ساخته شد — لینک: ${data.report_url}`);
     $('batchTopics').value = '';
     $('batchTitle').value = '';
-    // open the one aggregated report link
     if (data.report_url) window.open(data.report_url, '_blank');
     await refreshAll();
   } catch (e) {
@@ -548,7 +537,7 @@ $('scanForm').addEventListener('submit', async (ev) => {
         refresh_hours: parseInt($('refreshHours').value, 10) || 24,
       }),
     });
-    toast('اسکن ساخته شد — لینک گزارش: ' + data.report_url);
+    toast('اسکن ساخته شد — لینک: ' + (data.report_url || ('/report/' + data.id)));
     $('topic').value = '';
     await refreshAll();
   } catch (e) {
@@ -562,7 +551,7 @@ $('scanForm').addEventListener('submit', async (ev) => {
 async function loadUsage() {
   try {
     const data = await api('/api/usage');
-    const u = data.usage || {};
+    const u = data.usage || data;
     const cap = u.cap_mb ?? 500;
     const mb = u.d1_mb ?? 0;
     const pct = u.cap_percent ?? ((mb / cap) * 100).toFixed(1);
@@ -595,11 +584,11 @@ $('deletePrices').addEventListener('click', async () => {
     toast('مقدار ۱ تا ۳۶۵۰ روز', true);
     return;
   }
-  if (!confirm(`فقط قیمت‌های قدیمی‌تر از ${days} روز حذف شود؟\nدانش فنی و توضیحی پاک نمی‌شود.`)) return;
+  if (!confirm(`فقط قیمت‌های قدیمی‌تر از ${days} روز حذف شود؟`)) return;
   try {
-    const data = await api('/api/prices/delete', {
+    const data = await api('/api/prices/delete?older_than_days=' + days, {
       method: 'POST',
-      body: JSON.stringify({ older_than_days: days }),
+      body: JSON.stringify({ admin_token: localStorage.getItem('scanner_token') || '' }),
     });
     toast(`${data.deleted} ردیف قیمت حذف شد (فقط قیمت)`);
     await refreshAll();

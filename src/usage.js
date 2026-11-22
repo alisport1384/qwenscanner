@@ -117,7 +117,7 @@ async function fetchD1FileSize(env) {
 
 /**
  * Build today's usage snapshot and persist to meta (idempotent per day unless force).
- * Returns { date, d1_bytes, d1_mb, cap_mb, cap_percent, rows_read, rows_written, requests, sources, knowledge, estimated_only }.
+ * Returns { date, d1_bytes, d1_mb, cap_mb, cap_percent, rows_read, rows_written, requests, sources, quotes, estimated_only }.
  */
 export async function refreshUsage(env, { now = Date.now(), force = false } = {}) {
   const date = todayKey(now);
@@ -137,7 +137,7 @@ export async function refreshUsage(env, { now = Date.now(), force = false } = {}
   const requests = await fetchWorkerRequests(env, date);
 
   const sources = await count(env, 'sources');
-  const knowledge = await count(env, 'knowledge');
+  const quotes = await count(env, 'ironpin_quotes');
   const pages = await count(env, 'pages');
 
   const snap = {
@@ -151,7 +151,7 @@ export async function refreshUsage(env, { now = Date.now(), force = false } = {}
     rows_written: d1Analytics?.rowsWritten ?? null,
     requests,
     sources,
-    knowledge,
+    quotes,
     pages,
     estimated_only: estimatedOnly,
     cf_api: Boolean(env.CF_API_TOKEN),
@@ -173,8 +173,8 @@ async function estimateBytes(env) {
   try {
     const row = await env.DB.prepare(
       `SELECT COALESCE((
-         SELECT SUM(LENGTH(claim) + LENGTH(question) + LENGTH(tags) + LENGTH(topic) + LENGTH(url))
-         FROM knowledge
+         SELECT SUM(LENGTH(quote_json))
+         FROM ironpin_quotes
        ), 0) + COALESCE((
          SELECT SUM(LENGTH(url) + LENGTH(COALESCE(title,'')) + LENGTH(COALESCE(source,'')) + chars)
          FROM pages

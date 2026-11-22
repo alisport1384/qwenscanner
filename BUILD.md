@@ -1,6 +1,7 @@
-# راهنمای کامل ساخت و استقرار — اسکنر Qwen
+# راهنمای کامل ساخت و استقرار — اسکنر آنلاین آیرون پین
 
-سند گام‌به‌گام راه‌اندازی پنل اسکنر، دیتابیس D1، استقرار روی Cloudflare، لیست اسکن، و اتصال Qwen.
+سند گام‌به‌گام راه‌اندازی پنل اسکنر، دیتابیس D1، استقرار روی Cloudflare،
+لیست اسکن، و اتصال به اپلیکیشن آیرون پین.
 
 ---
 
@@ -48,14 +49,20 @@ npm install
 | فایل | نقش |
 |------|-----|
 | `wrangler.toml` | پیکربندی Worker، D1، Cron، متغیرها |
-| `schema.sql` | DDL دیتابیس (scans, pages, knowledge, batches, sources, meta) |
-| `src/` | منطق Worker (API، pipeline، چانکر، موتورها، retention، finder، seed) |
-| `src/ironpin_data.js` | دانش IronPin: endpointها، registry، bankهای جستجوگر۲ |
+| `schema.sql` | DDL دیتابیس (batches, scans, pages, sources, meta, ironpin_quotes) |
+| `src/` | منطق Worker (API، pipeline، موتورها، retention، finder، seed، guardian) |
+| `src/text_engine.js` | جستجوگر ۱ — تجزیه متن و استخراج ردیف قیمت |
+| `src/ironpin.js` | mapping Quote، دروازه حذف زباله، خروجی /api/ironpin |
+| `src/ironpin_data.js` | دانش آیرون پین: endpointها، registry، بانکهای جستجوگر ۲ |
 | `src/retention.js` | پاک‌سازی قیمت: نزدیک سقف فری → ۳ روز؛ هر ۳۱ روز → ۲۴ ساعت |
-| `src/finder.js` | هوش جستجوگر۲ — classifyLink + سه لیست + کشف منبع |
-| `src/seed.js` | کاشت اولیه منابع/موضوعات قیمت IronPin در اولین tick |
+| `src/finder.js` | هوش جستجوگر ۲ — classifyLink + سه لیست + کشف منبع |
+| `src/seed.js` | کاشت اولیه منابع/موضوعات قیمت آیرون پین در اولین tick |
+| `src/image_extract.js` | استخراج تایپ‌شده از تصویر (Clairic) → ردیف Quote |
 | `public/index.html` | پنل فارسی |
-| `test/` | تست‌های chunker، pipeline، finder/retention |
+| `test/smoke.js` | تست استخراج و دروازه‌های حذف |
+
+> مسیر RAG/چانکی مدل کوئن (`chunker.js`، جدول `knowledge`، `/api/qwen`،
+> `/api/hushyar`، بخش دانش کوئن در گزارش‌ها) **حذف** شده است.
 
 ---
 
@@ -86,7 +93,7 @@ npx wrangler d1 execute qwen_scanner --file=./schema.sql --remote
 npx wrangler d1 execute qwen_scanner --command="SELECT name FROM sqlite_master WHERE type='table'" --remote
 ```
 
-باید شامل `batches`, `scans`, `pages`, `knowledge`, `sources`, `meta` باشد.
+باید شامل `batches`, `scans`, `pages`, `sources`, `meta`, `ironpin_quotes` باشد.
 
 ---
 
@@ -94,13 +101,6 @@ npx wrangler d1 execute qwen_scanner --command="SELECT name FROM sqlite_master W
 
 ```bash
 npx wrangler deploy
-```
-
-خروجی موفق:
-
-```
-✨ Deployed!
-  https://qwen-scanner.<subdomain>.workers.dev
 ```
 
 ### آدرس عملی این استقرار (آماده)
@@ -114,9 +114,10 @@ npx wrangler deploy
 | Worker | `qwen-scanner` |
 | Route | `qwen.alisport0.qzz.io/*` → worker |
 
-> **نکته workers.dev:** روی این اکانت، مسیر `*.workers.dev` خطای `1101` می‌دهد (خرابی edge سمت حساب — Hello World هم 1101؛ صفر invocation). مسیر production از **دامنه اختصاصی** `qwen.alisport0.qzz.io` (DNS proxied + Worker Route) سالم است و همین آدرس رسمی است.
->
-> workers.dev این اکانت به `qwen-rag` تغییر کرد (`https://qwen-scanner.qwen-rag.workers.dev`) — اگر بعد از چند دقیقه سالم شد قابل استفاده است؛ وگرنه همین دامنه اختصاصی کافی است.
+> **نکته workers.dev:** روی این اکانت، مسیر `*.workers.dev` خطای `1101` می‌دهد
+> (خرابی edge سمت حساب). مسیر production از **دامنه اختصاصی**
+> `qwen.alisport0.qzz.io` (DNS proxied + Worker Route) سالم است و همین آدرس
+> رسمی است.
 
 ---
 
@@ -146,27 +147,25 @@ crons = ["*/5 * * * *", "0 */6 * * *"]
 
 | زمان‌بندی | کار |
 |-----------|-----|
-| هر ۵ دقیقه | seed IronPin (یک‌بار) + retention قیمت + کشف منبع (جستجوگر۲، هر ۲۰ دقیقه) + پیش‌بردن صف جستجو/دریافت |
+| هر ۵ دقیقه | seed آیرون پین (یک‌بار) + نگهداری قیمت + کشف منبع (جستجوگر ۲) + پیش‌بردن صف جستجو/دریافت |
 | هر ۶ ساعت | requeue اسکن‌های خودکار برای اسکن مجدد |
 
 ### نگهداری داده قیمت (D1 Free)
 
 | شرط | قاعده |
 |-----|-------|
-| حجم تخمینی D1 ≥ ۹۰٪ سقف فری (۵۰۰MB) | حذف ردیف‌های `price` قدیمی‌تر از **۳ روز** |
-| در غیر این صورت، هر **۳۱ روز** | حذف ردیف‌های `price` قدیمی‌تر از **۲۴ ساعت** |
+| حجم تخمینی D1 ≥ ۹۰٪ سقف فری (۵۰۰MB) | حذف ردیف‌های قیمت قدیمی‌تر از **۳ روز** |
+| در غیر این صورت، هر **۳۱ روز** | حذف ردیف‌های قیمت قدیمی‌تر از **۲۴ ساعت** |
 
-ردیف قیمت = `attribute/layer = price` یا tags حاوی price یا claim شامل قیمت/تومان/ریال/price.
+حذف فقط **دستی** است — با دکمه پنل یا `POST /api/prices/delete?older_than_days=N`.
 
 ### هوش جستجوگر ۲ (IronPin)
 
 - سه لیست: وب‌سایت‌ها / شبکه‌های اجتماعی / شبکه‌های داخلی
-- bankهای query از `FinderPlan` (۵ پرسش در هر round، چرخشی)
+- بانکهای query از `FinderPlan` (۵ پرسش در هر round، چرخشی)
 - `classifyLink`: فقط http(s)، بدون port/userinfo، رد کردن موتور جستجو/فایل/ربات/مسیرهای رزرو
-- منابع جدید خوانا → صفحه در اسکن «منابع قیمت آهن» → خروجی KnowledgeItem با همان متد Qwen
-- کاشت اولین tick: ۵۸+۱۲۴+۸۰ منبع IronPin + لیست موضوعات `قیمت {محصول} امروز` با auto-refresh ۲۴ ساعت
-
-مدیریت در داشبورد: Worker → **Settings** → **Triggers** → Cron Triggers.
+- منابع جدید خوانا → صفحه در اسکن «منابع قیمت آهن» → استخراج ردیف قیمت
+- کاشت اولین tick: منابع آیرون پین + لیست موضوعات `قیمت {محصول} امروز` با auto-refresh ۲۴ ساعت
 
 ### متغیرها (Free tier سازگار)
 
@@ -198,32 +197,10 @@ SEARCH_QUERY_LIMIT = "3"
 /report/batch/<UUID>
 ```
 
-**نمونه زنده پس از استقرار:**
-
-| مورد | آدرس |
-|------|------|
-| لیست «لیست استقرار» (۲ موضوع) | `https://qwen.alisport0.qzz.io/report/batch/bb9e0626-ef04-4c81-a715-d494045b7a77` |
-| JSON یکپارچه همان لیست | `https://qwen.alisport0.qzz.io/api/report/batch/bb9e0626-ef04-4c81-a715-d494045b7a77` |
-| پنل | `https://qwen.alisport0.qzz.io/` |
-
-4. JSON یکپارچه Qwen (همه دانش‌ها با فیلد `topic`):
+4. JSON یکپارچه (همه اسکن‌ها با آمار):
 
 ```
 /api/report/batch/<UUID>
-```
-
-فرمت خروجی:
-
-```json
-{
-  "format": "qwen-knowledge-v1",
-  "kind": "batch",
-  "batch": { "id": "...", "title": "...", "topics_count": 5 },
-  "scans": [ { "id": "...", "topic": "...", "status": "done", "knowledge_count": 12 } ],
-  "chunker": { "target_chars": 900, "overlap_chars": 140, "min_chars": 200 },
-  "retrieval_hint": { "weights": { "topicMatch": 0.45, "claimRelevance": 0.3, "freshness": 0.15, "confidence": 0.1 }, "top_k": 4 },
-  "items": [ { "id": "...", "topic": "...", "claim": "...", "kind": "chunk", "confidence": 0.68, "ttl_days": 45 } ]
-}
 ```
 
 ### ۶.۳ اجرای دستی tick (بدون صبر کردن cron)
@@ -232,18 +209,16 @@ SEARCH_QUERY_LIMIT = "3"
 curl -X POST "https://<worker>/api/dev/tick"
 ```
 
-یا از داشبورد Cloudflare: Workers → your worker → **Settings** → **Triggers** → Cron → **Cron Triggers** → … یا استفاده از dashboard.
-
-### ۶.۴ خودکارسازی (IronPin + جستجوگر۲ + نگهداری قیمت)
+### ۶.۴ خودکارسازی (IronPin + جستجوگر ۲ + نگهداری قیمت)
 
 پس از deploy، cron هر ۵ دقیقه به‌صورت خودکار:
 
-1. **کاشت IronPin** (فقط اولین tick): منابع + لیست `قیمت {میلگرد|تیرآهن|…} امروز` + صفحات seed
+1. **کاشت آیرون پین** (فقط اولین tick)
 2. **نگهداری قیمت**: نزدیک سقف فری → ۳ روز؛ هر ۳۱ روز → ۲۴ ساعت
-3. **جستجوگر۲**: هر ۲۰ دقیقه یک round کشف منبع (۳ لیست × ۵ پرسش)
+3. **جستجوگر ۲**: هر ۲۰ دقیقه یک round کشف منبع
 4. **پیشبردن صف** و **requeue** هر ۶ ساعت
 
-خروجی همه مسیرها: KnowledgeItem فرمت Qwen در D1 + لینک `/report/batch/:id`.
+خروجی همه مسیرها: ردیف‌های Quote فرمت `ironpin-quotes-v1` در D1 + لینک `/report/batch/:id`.
 
 ---
 
@@ -253,36 +228,43 @@ curl -X POST "https://<worker>/api/dev/tick"
 |-----|------|-------|
 | POST | `/api/scans` | ساخت اسکن تکی `{topic}` |
 | GET | `/api/scans` | فهرست اسکن‌ها |
-| GET | `/api/scans/:id` | جزئیات + نمونه دانش |
+| GET | `/api/scans/:id` | جزئیات + نمونه ردیفه‌ها |
 | DELETE | `/api/scans/:id` | حذف اسکن |
 | POST | `/api/scans/:id/refresh` | اسکن مجدد |
-| GET | `/api/report/:id` | JSON Qwen تکی |
-| POST | `/api/batches` | ساخت لیست `{title?, topics: "خط۱\\nخط۲"}` |
+| POST | `/api/scans/:id/pause` | توقف اسکن خودکار |
+| POST | `/api/scans/:id/resume` | ادامه اسکن خودکار |
+| POST | `/api/batches` | ساخت لیست `{title?, topics: "خط۱\nخط۲"}` |
 | GET | `/api/batches` | فهرست لیست‌ها + آمار |
-| GET | `/api/batches/:id` | جزئیات لیست + اسکن‌ها |
 | DELETE | `/api/batches/:id` | حذف لیست + همه فرزندان |
-| GET | `/api/report/batch/:id` | **JSON یکپارچه کل لیست** |
-| GET | `/api/stats` | آمار داشبورد (+ منابع، retention، جستجوگر۲) |
+| GET | `/api/report/:id` | JSON اسکن تکی |
+| GET | `/api/report/all` | JSON همه اسکن‌ها |
+| GET | `/api/ironpin` | خروجی ردیف‌های Quote (IronPin)؛ `?since=<ms>` = incremental |
+| GET | `/api/stats` | آمار داشبورد |
 | GET | `/api/health` | سلامت D1 |
+| GET | `/api/sources` | JSON منابع برای آیرون پین |
+| GET | `/api/usage` | مصرف روزانه D1/CF |
+| POST | `/api/usage/refresh` | force refresh snapshot |
+| GET/POST | `/api/settings` | خواندن/تنظیم چرخه نگهداری قیمت |
+| POST | `/api/prices/delete?older_than_days=N` | **فقط دستی** حذف قیمت‌های قدیمی |
 | POST | `/api/dev/tick` | اجرای دستی pipeline |
 | GET | `/report/:id` | صفحه HTML گزارش تکی |
 | GET | `/report/batch/:id` | **صفحه HTML یکپارچه لیست** |
+| GET | `/report/all` | صفحه HTML همه اسکن‌ها |
+| GET | `/report/sources` | صفحه HTML وضعیت منابع |
 
-اگر `AUTH_TOKEN` تنظیم شده باشد، همه به جز GET های `report` نیاز به `Authorization: Bearer <token>` دارند.
+اگر `AUTH_TOKEN` تنظیم شده باشد، همه به جز GET‌های `report` نیاز به
+`Authorization: Bearer <token>` دارند.
 
 ---
 
 ## ۸. تست‌ها
 
 ```bash
-node test/chunker.test.js
-node test/pipeline.test.js
-node test/finder.test.js
+node test/smoke.js
 ```
 
-- `chunker.test.js` — چانک‌بندی ۹۰۰/۱۴۰/۲۰۰ و Facts
-- `pipeline.test.js` — صف، claim، finalize، requeue
-- `finder.test.js` — classifyLink، FinderPlan، retention قیمت، seed
+- `test/smoke.js` — استخراج ردیف قیمت، تبدیل ریال → تومان، دروازه حذف
+  زباله، دروازه مبالغ غیرعادی، تبدیل واحد هندسی
 
 dry-run استقرار:
 
@@ -299,8 +281,9 @@ npm run dev          # http://localhost:8787
 npm run db:apply:local
 ```
 
-نکته: Cron endpoint محلی wrangler در حضور `[assets]` ممکن است ۵۰۰ بدهد (باگ شناخته‌شده wrangler 4.86).  
-جایگزین: `POST /api/dev/tick` — همان مسیر production که cron صدا می‌زند.
+نکته: Cron endpoint محلی wrangler در حضور `[assets]` ممکن است ۵۰۰ بدهد
+(باگ شناخته‌شده wrangler ۴.۸۶). جایگزین: `POST /api/dev/tick` — همان مسیر
+production که cron صدا می‌خواند.
 
 داده محلی در `.wrangler/state/` می‌ماند.
 
@@ -313,7 +296,7 @@ npm run db:apply:local
 | `database_id` خطا | مقدار REPLACE را با ID واقعی از `wrangler d1 create` عوض کنید و دوباره execute |
 | ۴۰۱ unauthorized | `AUTH_TOKEN` را در پنل وارد کنید یا Bearer بدهید |
 | لیست ساخته نشد | حداکثر ۵۰ خط؛ هر خط ۲–۲۰۰ کاراکتر |
-| دانش ۰ ماند | `POST /api/dev/tick` بزنید؛ یا ۵–۱۵ دقیقه صبر کنید (cron هر ۵ دقیقه) |
+| ردیف قیمت ۰ ماند | `POST /api/dev/tick` بزنید؛ یا ۵–۱۵ دقیقه صبر کنید (cron هر ۵ دقیقه) |
 | صفحات timeout | طبیعی است؛ سایت‌های کند fail می‌شوند و بقیه ادامه دارد |
 | deploy قدیمی | هر تغییر کد → دوباره `npx wrangler deploy` |
 
@@ -327,7 +310,7 @@ npm run db:apply:local
 - [ ] `wrangler d1 execute ... --file=./schema.sql --remote`
 - [ ] `npx wrangler deploy` موفق
 - [ ] پنل باز شد، D1 متصل (نقطه سبز)
-- [ ] یک اسکن تکی آزمایشی + یک لیست ۲خطی آزمایشی
+- [ ] یک اسکن تکی آزمایشی + یک لیست ۲ خطی آزمایشی
 - [ ] لینک `/report/batch/...` باز شد و JSON دانلود شد
 - [ ] (اختیاری) `AUTH_TOKEN` تنظیم و deploy مجدد
 - [ ] Cron Triggers در داشبورد فعال دیده شد
@@ -343,36 +326,15 @@ npm run db:apply:local
 Worker API (src/api.js)  ◄──── Cron */5 و 0*/6 (src/pipeline.js)
     │
     ▼
-D1: batches → scans → pages → knowledge
+D1: batches → scans → pages → ironpin_quotes
     │
     ▼
-گزارش HTML /report/...  +  JSON qwen-knowledge-v1 /api/report/...
+گزارش HTML /report/...  +  JSON ironpin-quotes-v1 /api/ironpin
 ```
 
-- **چانکر**: ۹۰۰ حرف / overlap ۱۴۰ / min ۲۰۰ (~۴۵۰ توکن)
+- **جستجوگر ۱**: `text_engine.js` (تجزیه خط‌به‌خط مشابه موتور قیمت متن در
+  اپلیکیشن) + `image_extract.js` (Clairic)
+- **جستجوگر ۲**: `finder.js` + `ironpin_data.js` — کشف منابع و ارائه به جستجوگر ۱
 - **موتورها**: bing → bing-rss → ddg → gerdoo → zarebin
-- **ذخیره**: dual-write چانک + جمله نمایشی؛ confidence ۰.۶۸/۰.۶۲/۰.۵۵؛ TTL ۴۵ روز
 - **لیست**: N اسکن → یک `batches` → یک لینک `/report/batch/:id` و یک JSON یکپارچه
-
----
-
-*پایان سند — برای استقرار عملی: توکن Cloudflare را بدهید تا deploy از همین محیط انجام شود.*
-
-
----
-
-## v1.3 — لینک کل دانش / منابع / مصرف / حذف دستی قیمت (2026-11-20)
-
-| مسیر | متد | توضیح |
-|------|-----|-------|
-| `/report/all` | GET | صفحهٔ HTML کل دانش (زنده) |
-| `/api/report/all` | GET | JSON کل دانش — بدون auth (قابل اشتراک) |
-| `/report/sources` | GET | فهرست منابع HTML |
-| `/api/sources` | GET | JSON منابع برای IronPin — بدون auth |
-| `/api/usage` | GET | مصرف روزانه D1/CF + سقف ۵۰۰MB |
-| `/api/usage/refresh` | POST | force refresh snapshot |
-| `/api/prices/delete` | POST | **فقط دستی** حذف قیمت‌های قدیمی `{older_than_days}` |
-
-Secrets: `CF_API_TOKEN` · `CF_ACCOUNT_ID` · `CF_D1_ID`
-
-منبع: `state=dead` دیگر enqueue نمی‌شود؛ `live` بعد از استخراج دانش.
+- **نگهبان**: `guardian.js` — حد CPU/fetch/AI/حجم برای مصرف حداقلی

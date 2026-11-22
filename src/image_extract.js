@@ -9,7 +9,8 @@
  * wall-clock), skipped entirely when env.AI is not bound.
  */
 
-import { buildKnowledgeItem } from './knowledge.js';
+import { repairQuote } from './ironpin.js';
+import { analyzeText } from './text_engine.js';
 
 const IMG_SRC_RE = /<img[^>]+src=["']([^"']+)["']/gi;
 const IMG_EXT_RE = /\.(png|jpe?g|webp)(\?|#|$)/i;
@@ -191,7 +192,61 @@ async function loadImageData(env, src, guardian) {
 }
 
 /**
- * Extract typed facts for one fetched page. Returns knowledge-ready objects
+ * Build Quote rows from Clairic answers — the image-extraction path of the
+ * online scanner. Only confident, price-bearing rows are registered (product
+ * + specs + price, no prose). The claim text is fed through analyzeText for
+ * a consistent Quote shape, then through the repair gate.
+ */
+export function quotesFromAnswers(answers, { url, domain, topic, endpoint, seller, now }) {
+  if (!answers || typeof answers !== 'object') return [];
+  const a = (k) => answers[k] || {};
+  const conf = (k) => num(a(k).confidence) ?? 0;
+  const val = (k) => (conf(k) >= MIN_CONFIDENCE ? a(k).value : null);
+
+  const product = txt(val('product'));
+  const amount = num(val('amount'));
+  const basis = txt(val('price_basis'));
+  const dims = txt(val('dimensions'));
+  const grade = txt(val('grade'));
+  const taxRaw = txt(val('tax'));
+  const city = txt(val('city'));
+  const date = txt(val('published_on'));
+  const pieceKg = num(val('piece_weight_kg'));
+
+  if (amount == null || amount <= 0 || !product) return [];
+
+  const parts = [`قیمت ${product}: ${amount} تومان`];
+  if (basis) parts.push(`مبنای واحد: ${basis}`);
+  if (dims) parts.push(`ابعاد: ${dims}`);
+  if (grade) parts.push(`کیفیت: ${grade}`);
+  if (pieceKg != null && pieceKg > 0) parts.push(`وزن هر قطعه: ${pieceKg} کیلوگرم`);
+  if (taxRaw && /ارزش افزوده/.test(taxRaw)) parts.push(`مالیات: ${taxRaw}`);
+  if (city) parts.push(`شهر: ${city}`);
+  if (date) parts.push(`تاریخ: ${date}`);
+
+  const claim = parts.join('، ');
+  const rows = analyzeText({
+    text: claim,
+    endpoint: endpoint || 'qwen-scanner',
+    seller: seller || domain || topic || '',
+    sourceUrl: url,
+    fetchedAt: now,
+    sellerCity: city || 'نامشخص',
+    defaultCurrency: 'تومان',
+  });
+  return rows
+    .map((q) => {
+      q.details['منبع استخراج'] = 'تصویر صفحه (Clairic)';
+      if (pieceKg != null && q.pieceKg == null) q.pieceKg = pieceKg;
+      if (dims) q.dimensions = q.dimensions || dims;
+      if (grade) q.grade = q.grade || grade;
+      return q;
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Extract typed facts for one fetched page. Returns Quote-compatible rows
  * ([] on any failure — never blocks the pipeline).
  */
 export async function extractFromPage(env, { html, pageUrl, domain, text, scan, lang, now, guardian }) {
@@ -224,30 +279,14 @@ export async function extractFromPage(env, { html, pageUrl, domain, text, scan, 
     guardian.spendAi(1);
 
     const answers = res?.answers || res?.result?.answers;
-    const rows = claimsFromAnswers(answers, {
+    return quotesFromAnswers(answers, {
       url: pageUrl,
       domain,
       topic: scan.topic,
-      scanId: scan.id,
-    });
-    if (!rows.length) return [];
-
-    return rows.map((r, i) =>
-      buildKnowledgeItem({
-        kind: 'fact',
-        topic: scan.topic,
-        question: scan.topic,
-        claim: r.claim,
-        url: pageUrl,
-        domain,
-        index: 1000 + i, // distinct namespace from text facts (hash input)
-        total: rows.length,
-        layer: r.attribute,
-        lang,
-        now,
-        offset: null,
-      })
-    );
+      endpoint: 'qwen-scanner',
+      seller: domain || scan.topic,
+      now,
+    }).map((q) => repairQuote(q)).filter(Boolean);
   } catch (e) {
     console.error('image extract failed', e?.message || e);
     return [];

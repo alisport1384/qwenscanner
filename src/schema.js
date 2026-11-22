@@ -43,30 +43,6 @@ CREATE TABLE IF NOT EXISTS pages (
   created_at  INTEGER NOT NULL,
   UNIQUE (scan_id, url)
 );
-CREATE TABLE IF NOT EXISTS knowledge (
-  id              TEXT NOT NULL,
-  scan_id         TEXT NOT NULL,
-  kind            TEXT NOT NULL,
-  topic           TEXT NOT NULL,
-  question        TEXT NOT NULL,
-  claim           TEXT NOT NULL,
-  category        TEXT NOT NULL DEFAULT 'rag',
-  attribute       TEXT,
-  url             TEXT NOT NULL,
-  domain          TEXT NOT NULL,
-  confidence      REAL NOT NULL,
-  ttl_days        INTEGER NOT NULL DEFAULT 45,
-  layer           TEXT,
-  tags            TEXT NOT NULL DEFAULT '[]',
-  chunk_index     INTEGER,
-  chunk_total     INTEGER,
-  tokens          INTEGER,
-  offset_chars    INTEGER,
-  lang            TEXT,
-  created_at      INTEGER NOT NULL,
-  last_verified_at INTEGER NOT NULL,
-  PRIMARY KEY (scan_id, id)
-);
 CREATE TABLE IF NOT EXISTS sources (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   url         TEXT NOT NULL,
@@ -98,9 +74,6 @@ CREATE INDEX IF NOT EXISTS idx_scans_status ON scans (status, phase, next_refres
 CREATE INDEX IF NOT EXISTS idx_scans_batch ON scans (batch_id);
 CREATE INDEX IF NOT EXISTS idx_pages_scan_status ON pages (scan_id, status);
 CREATE INDEX IF NOT EXISTS idx_pages_claimed ON pages (status, claimed_at);
-CREATE INDEX IF NOT EXISTS idx_knowledge_scan ON knowledge (scan_id, kind);
-CREATE INDEX IF NOT EXISTS idx_knowledge_attr ON knowledge (attribute, last_verified_at);
-CREATE INDEX IF NOT EXISTS idx_sources_part ON sources (part, kind);
 CREATE INDEX IF NOT EXISTS idx_pages_url ON pages (url);
 CREATE INDEX IF NOT EXISTS idx_sources_url ON sources (url);
 `;
@@ -125,7 +98,6 @@ const MIGRATIONS = [
     last_checked_at INTEGER
   )`,
   'CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)',
-  'CREATE INDEX IF NOT EXISTS idx_knowledge_attr ON knowledge (attribute, last_verified_at)',
   'CREATE INDEX IF NOT EXISTS idx_sources_part ON sources (part, kind)',
   'CREATE INDEX IF NOT EXISTS idx_pages_url ON pages (url)',
   'CREATE INDEX IF NOT EXISTS idx_sources_url ON sources (url)',
