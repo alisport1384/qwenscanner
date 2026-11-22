@@ -117,3 +117,38 @@ test('repairQuote enforces تومان-only contract at read time',()=>{
  // priceless rows are dropped, never exported
  assert.equal(repairQuote({id:'c',title:'خبر روز',amount:null}),null);
 });
+
+test('read-time context gates: no product, news junk, stale claims are dropped',()=>{
+ // no steel product named anywhere → not a quote for this app
+ assert.equal(repairQuote({id:'j1',title:'درب و پنجره',amount:500000,currency:'تومان',details:{'متن پیام':'ساخت درب و پنجره آهنی در تبریز با بهترین قیمت'}}),null);
+ // two+ news markers → context junk, never a price claim of this market
+ assert.equal(repairQuote({id:'j2',title:'خبر',amount:500000,currency:'تومان',details:{'متن پیام':'میلگرد و تیرآهن؛ به گزارش خبرگزاری ایسنا، کد مطلب 123 قیمت 500000 تومان'}}),null);
+ // a claim published in 2013 is not a current price
+ assert.equal(repairQuote({id:'j3',title:'میلگرد',amount:500000,currency:'تومان',details:{'متن پیام':'میلگرد 16: 500,000 تومان','زمان انتشار پیام':'2013-07-07T00:00:00.000Z'}}),null);
+ // gates run even when the stored amount is perfectly valid (the junk case)
+ assert.equal(repairQuote({id:'j4',title:'خبر',amount:500000,currency:'تومان',details:{'متن پیام':'میلگرد؛ به گزارش خبرگزاری فارس، کد خبر 55 قیمت 500000 تومان'}}),null);
+});
+
+test('per-unit fences and weight-based unit repair at read time',()=>{
+ // per-shaakhe price stored under kg: announced weight re-bases the unit
+ const fixed=repairQuote({id:'f1',title:'تیرآهن 18',amount:10700000,currency:'تومان',unit:'kg',pieceKg:190,details:{'متن پیام':'تیرآهن 18 وزن 190 کیلو 107,000,000 ریال'}});
+ assert.equal(fixed.unit,'piece');
+ // same repair by reading the weight out of the text when the row lacks it
+ const fixed2=repairQuote({id:'f1b',title:'تیرآهن 18',amount:10700000,currency:'تومان',unit:'kg',details:{'متن پیام':'تیرآهن 18 اصفهان وزن 190 کیلو 107,000,000 ریال'}});
+ assert.equal(fixed2.unit,'piece');
+ // impossible per-kg amount with no weight to explain it → dropped
+ assert.equal(repairQuote({id:'f2',title:'میلگرد',amount:46500000,currency:'تومان',unit:'kg',details:{'متن پیام':'میلگرد 16: 46,500,000 تومان'}}),null);
+ // floor: a 1,500-toman "sheet" is not a sheet price
+ assert.equal(repairQuote({id:'f3',title:'ورق',amount:1500,currency:'تومان',unit:'sheet',details:{'متن پیام':'ورق سیاه 1,500 تومان'}}),null);
+ // sane rows pass untouched
+ const ok=repairQuote({id:'f4',title:'میلگرد 14',amount:128000,currency:'تومان',unit:'unknown',details:{'متن پیام':'میلگرد 14 ذوب آهن A3 128,000 تومان'}});
+ assert.equal(ok.amount,128000);
+});
+
+test('export serves each distinct claim once',async()=>{
+ const a={id:'d1',title:'میلگرد 16 بازار',amount:125000,currency:'تومان',unit:'unknown'};
+ const b={id:'d2',title:'میلگرد 16 بازار',amount:125000,currency:'تومان',unit:'unknown'};
+ const db={prepare(){return{async all(){return{results:[{quote_json:JSON.stringify(a),source_last_verified_at:1},{quote_json:JSON.stringify(b),source_last_verified_at:2}]}}}}};
+ const out=await buildIronpinExport(db);
+ assert.equal(out.count,1,'same claim from two scans served once');
+});

@@ -25,6 +25,10 @@ export function computeConversions(text='',{unit='unknown',size='',thickness='',
   const kgPiece=t.match(/(?:وزن\s*)?(?:هر\s*)?(?:شاخه|قطعه|عدد|برگ|رول)\s*(?:به\s*)?(?:حدود\s*)?(\d+(?:[.,]\d+)?)\s*کیلو/i)
     ||t.match(/(\d+(?:[.,]\d+)?)\s*کیلوگرم\s*(?:به ازای|هر)?\s*(?:شاخه|قطعه|عدد|برگ)/i);
   if(kgPiece){const v=n(kgPiece[1]);if(v&&v>0)out.pieceKg=v;}
+  // «وزن 190 کیلو» on a shafted product = the piece weight (no unit word needed);
+  // a following «هر متر» means per-meter weight instead, never a piece.
+  if(out.pieceKg==null){const wm=t.match(/وزن\s*(?:شاخه\s*)?(?:حدود\s*)?(\d+(?:[.,]\d+)?)\s*کیلو(?:گرم)?/);
+   if(wm&&!/هر\s*متر/.test(t.slice(t.indexOf(wm[0]),t.indexOf(wm[0])+60))){const v=n(wm[1]);if(v&&v>0)out.pieceKg=v;}}
   if(lenM){const v=n(lenM[1]);if(v&&v>0)out.lengthM=v;}
   if(out.pieceKg!=null||out.lengthM!=null)out.basis='صریح از متن';
   const kgmExplicit=t.match(/(\d+(?:[.,]\d+)?)\s*کیلوگرم\s*(?:به ازای|هر)\s*1?\s*متر/);
@@ -93,23 +97,53 @@ export function extractPriceFromText(raw){
  }
  return null;
 }
-/** Read-time contract guard: every served quote carries a real تومان amount.
- *  Invalid stored rows get one honest re-extraction from their own text;
- *  if that yields no price the row is dropped (never export priceless). */
+/** Honest per-unit amount bounds (تومان) measured on the live feed: below
+ *  these floors and above these ceilings the number cannot be a real price
+ *  in that unit. `unknown` gets no fence — without a unit no honest bound
+ *  exists, and context gates already carry those rows. */
+const FENCES={kg:[15000,2000000],piece:[2000,150000000],sheet:[20000,150000000],m2:[5000,50000000],roll:[10000,100000000],ton:[1000000,300000000],m:[1000,20000000]};
+/** Two or more of these in one claim = news/portal context, not a price
+ *  claim of this market (measured: precision over the live feed). */
+const JUNK_MARKERS=['کد خبر','کد مطلب','لینک کوتاه','خبرگزاری','تسنیم','ایسنا','فارس نیوز','به گزارش','بازی بعدی','رانندگی','استعلام','پرسپولیس','سخنگوی','مجلس شورا','تاریخ انتشار','صفحه نخست','اسرائیل','آمریکا','حمله','توافق','کنگره','قطعنامه','سازمان ملل','انتخابات','جنگ'];
+function junkClaim(t){let n=0;for(const k of JUNK_MARKERS){if(t.includes(k)&&++n>=2)return true}return false}
+/** Read-time contract guard: every served quote carries a real تومان amount
+ *  inside honest per-unit bounds, and comes from a claim that actually names
+ *  a steel product. Invalid stored rows get one honest re-extraction from
+ *  their own text; context junk, decade-old claims, priceless rows and
+ *  impossible amounts are dropped (never export an invented or meaningless
+ *  price). A per-shaakhe price stored under `kg` is re-based when the
+ *  announced weight makes the per-kilogram rate sane again. */
 export function repairQuote(q){
  if(!q||typeof q!=='object')return null;
- if(typeof q.amount==='number'&&q.amount>=1000&&q.amount<=1e9&&q.currency==='تومان')return q;
  const d=(q.details&&typeof q.details==='object')?q.details:null;
- const ex=extractPriceFromText((d&&d['متن پیام'])||q.title||'');
- if(!ex)return null;
- q.amount=ex.amount;q.currency='تومان';
- q.status='استخراج متنی با مبلغ/ارز/واحد؛ موجودی نیازمند تأیید';
- if(d){
-  d['مبلغ استخراج‌شده']=String(ex.amount);
-  d['مبنای ارز']='تومان';
-  d['وضعیت استخراج']='قیمت از ادعای اسکنر؛ موجودی نیازمند تأیید';
-  if(ex.fromRial)d['مبنای تبدیل ارز']='ریال÷۱۰ از متن منبع';
+ const raw=(d&&d['متن پیام'])||q.title||'';
+ const t=clean(raw);
+ if(t){
+  if(!PRODUCT.test(t))return null;
+  if(junkClaim(t))return null;
+  const published=String((d&&d['زمان انتشار پیام'])||'');
+  const py=Number(published.slice(0,4));
+  if(published&&py&&py<2023)return null;
  }
+ if(!(typeof q.amount==='number'&&q.amount>=1000&&q.amount<=1e9&&q.currency==='تومان')){
+  const ex=extractPriceFromText(raw);
+  if(!ex)return null;
+  q.amount=ex.amount;q.currency='تومان';
+  q.status='استخراج متنی با مبلغ/ارز/واحد؛ موجودی نیازمند تأیید';
+  if(d){
+   d['مبلغ استخراج‌شده']=String(ex.amount);
+   d['مبنای ارز']='تومان';
+   d['وضعیت استخراج']='قیمت از ادعای اسکنر؛ موجودی نیازمند تأیید';
+   if(ex.fromRial)d['مبنای تبدیل ارز']='ریال÷۱۰ از متن منبع';
+  }
+ }
+ if(q.unit==='kg'&&q.amount>2000000){
+  let pk=(typeof q.pieceKg==='number'&&q.pieceKg>0)?q.pieceKg:0;
+  if(!pk&&t)pk=computeConversions(t,{unit:'kg'}).pieceKg||0;
+  if(pk>0){const per=q.amount/pk;if(per>=15000&&per<=2000000){q.unit='piece';if(d)d['مبنای واحد']='piece';}}
+ }
+ const f=FENCES[q.unit];
+ if(f&&!(q.amount>=f[0]&&q.amount<=f[1]))return null;
  return q;
 }
 function quote(row){const text=clean(row.claim||'');if(!text)return null;const lines=text.split(/[\n؛]+/).map(x=>x.trim()).filter(Boolean);let city=CITIES.find(c=>text.includes(c))||'نامشخص';const pc=cityFromPhone(text);let cityFrom=city==='نامشخص'?'':'از متن';if(city==='نامشخص'&&pc){city=pc.city;cityFrom='از پیش‌شماره '+pc.prefix;}let category=(PRODUCT.exec(text)||[])[0]||row.topic||row.category||'عمومی';let mat=/استیل|استنلس/i.test(text)?'استنلس استیل':/آلومینیوم/.test(text)?'آلومینیوم':/آلیاژ|MO40|CK45|A516/i.test(text)?'فولاد آلیاژی':'فولاد کربنی';let brand=(text.match(/ذوب.?آهن|مبارکه|فولاد خوزستان|کاوه|ارفع/)||[])[0]||'';const exPrice=extractPriceFromText(text);if(!exPrice)return null;let amount=exPrice.amount,unit='unknown',tax='نامشخص',currency='تومان';const basis=exPrice.basis;if(/کیلو(?:گرم)?|کیلویی/.test(text))unit='kg';else if(/مترمربع|متر مربع/.test(text))unit='m2';else if(/شاخه|عدد/.test(text))unit='piece';else if(/\bتن\b/.test(text))unit='ton';else if(/\bمتر\b/.test(text))unit='m';else if(/ورق|شیت|برگ/.test(text))unit='sheet';else if(/رول/.test(text))unit='roll';let title=text.slice(0,400);let size=(text.match(/(?:سایز|نمره|میلگرد|حرارتی|تیرآهن|نبشی|ناودانی)\s*(\d+(?:[.,]\d+)?)/)||[])[1]||'';let thickness=(text.match(/ضخامت\s*[:：]?\s*([\d.]+)/)||[])[1]||'';let dims=(text.match(/\d+(?:[.,]\d+)?\s*[x×*]\s*\d+(?:[.,]\d+)?(?:\s*[x×*]\s*\d+(?:[.,]\d+)?)?/i)||[])[0]||'';let grade=(text.match(/گرید\s*[:：]?\s*([\w-]+)/i)||[])[1]||'';const conv=computeConversions(text,{unit,size,thickness,dims});let date=dateOf(text)||new Date(Number(row.last_verified_at)||Date.now()).toISOString();if(/بدون ارزش افزوده/.test(text))tax='بدون ارزش افزوده';else if(/با ارزش افزوده/.test(text))tax='با ارزش افزوده';let details={'تحلیل متن':'محلی v2','متن پیام':text,'سرعنوان گروه':row.topic||'','مبنای شهر':cityFrom,'شماره تماس':pc?pc.phone:'','مبنای تبدیل واحد':conv.basis||'','وزن هر متر (تقریب)':conv.kgm!=null?conv.kgm+' کیلوگرم':'','مبلغ استخراج‌شده':amount?String(amount):'','مبنای ارز':currency,'مبنای واحد':unit,'زمان انتشار پیام':date,'وضعیت استخراج':amount?'قیمت از ادعای اسکنر؛ موجودی نیازمند تأیید':'متن فاقد مبلغ یکتای قابل استخراج','ویژگی‌های منبع':row.attribute||''};if(exPrice.fromRial)details['مبنای تبدیل ارز']='ریال÷۱۰ از متن منبع';let dateRaw=date;let src=String(row.url||'');try{let u=new URL(src);if(!/^https?:$/.test(u.protocol)||!u.hostname)src=''}catch{src=''}let id=`qw:${row.scan_id}:${row.id}`.slice(0,512);return {id,endpoint:'qwen-scanner',seller:domainOf(row.url,row.domain),sellerCity:city,title,category,material:mat,brand,loading:'نامشخص',loadingCity:'نامشخص',unit,tax,currency,terms:'نامشخص',sourceUrl:src,sourceDateRaw:dateRaw,status:amount?'استخراج متنی با مبلغ/ارز/واحد؛ موجودی نیازمند تأیید':'متن فاقد مبلغ یکتای قابل استخراج',amount,pieceKg:conv.pieceKg,lengthM:conv.lengthM,areaM2:conv.areaM2,fetchedAt:new Date(Number(row.last_verified_at)||Date.now()).toISOString(),size,thickness,dimensions:dims,grade,details}}
@@ -142,8 +176,10 @@ export async function streamIronpinExport(db,{since=0}={}){
   db.prepare('SELECT value FROM meta WHERE key=?1').bind(BACKFILL_KEY).first()
  ]);
  const raws=qres.results||[];let ready=false;try{ready=JSON.parse(state?.value||'{}').done===true}catch{}
- let cursor=sinceN;const qs=[];
- for(const r of raws){const t=Number(r.source_last_verified_at)||0;if(t>cursor)cursor=t;let q=null;try{q=JSON.parse(r.quote_json)}catch{continue}const fixed=repairQuote(q);if(fixed)qs.push(fixed)}
+ let cursor=sinceN;const qs=[];const seen=new Set();
+ for(const r of raws){const t=Number(r.source_last_verified_at)||0;if(t>cursor)cursor=t;let q=null;try{q=JSON.parse(r.quote_json)}catch{continue}const fixed=repairQuote(q);if(!fixed)continue;
+  const key=String(fixed.title||'').slice(0,80)+'|'+fixed.amount+'|'+fixed.unit;
+  if(seen.has(key))continue;seen.add(key);qs.push(fixed)}
  let candidates=[];
  if(!incremental){
   try{
@@ -158,5 +194,9 @@ export async function streamIronpinExport(db,{since=0}={}){
  return new Response(body,{headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':ready&&!incremental?'public, max-age=900':'no-store','X-Content-Type-Options':'nosniff'}});
 }
 export async function buildIronpinExport(db){
- const rows=await db.prepare('SELECT quote_json FROM ironpin_quotes ORDER BY rowid').all();const quotes=(rows.results||[]).map(r=>{try{return repairQuote(JSON.parse(r.quote_json))}catch{return null}}).filter(Boolean);return {format:'ironpin-quotes-v1',generated_at:new Date().toISOString(),count:quotes.length,quotes};
+ const rows=await db.prepare('SELECT quote_json FROM ironpin_quotes ORDER BY rowid').all();const quotes=[];const seen=new Set();
+ for(const r of rows.results||[]){let q=null;try{q=repairQuote(JSON.parse(r.quote_json))}catch{continue}if(!q)continue;
+  const key=String(q.title||'').slice(0,80)+'|'+q.amount+'|'+q.unit;
+  if(seen.has(key))continue;seen.add(key);quotes.push(q)}
+ return {format:'ironpin-quotes-v1',generated_at:new Date().toISOString(),count:quotes.length,quotes};
 }
