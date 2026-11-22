@@ -191,8 +191,9 @@ ok('hushyar export has recognizable format, link map and section counts', () => 
   ];
   const doc = toHushyarExport(items, { topics: 1, sources: 1 });
   assert.equal(doc.format, 'hushyar-knowledge-v1');
-  assert.equal(doc.links.qwen_model, '/api/qwen');
-  assert.equal(doc.links.ironpin_quotes, '/api/ironpin');
+  assert.equal(doc.links.qwen_model, 'https://qwen.alisport0.qzz.io/api/qwen');
+  assert.equal(doc.links.ironpin_quotes, 'https://qwen.alisport0.qzz.io/api/ironpin');
+  assert.ok(doc.links.self.startsWith('https://'), 'absolute self link');
   assert.equal(doc.counts.prices, 2);
   assert.equal(doc.counts.definitions, 1);
   assert.equal(doc.items.length, 3);

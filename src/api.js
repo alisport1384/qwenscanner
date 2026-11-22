@@ -19,6 +19,15 @@ function json(data, status = 200, cacheControl = null) {
   return new Response(JSON.stringify(data, null, 2), { status, headers });
 }
 
+/** Minified JSON for multi-MB feeds: pretty-printed 20MB+ responses stalled
+ *  browser tabs on the "JSON" links (white screen while millions of lines
+ *  rendered). Same bytes of information, loads and parses immediately. */
+export function jsonMin(data, status = 200, cacheControl) {
+  const headers = { 'Content-Type': 'application/json; charset=utf-8' };
+  if (cacheControl) headers['Cache-Control'] = cacheControl;
+  return new Response(JSON.stringify(data), { status, headers });
+}
+
 export function errorJson(message, status = 400) {
   return json({ error: message }, status);
 }
@@ -433,12 +442,12 @@ export async function handleApi(request, env, ctx) {
     const sources = new Set(items.map((i) => i.domain).filter((x) => x != null)).size;
     const categories = new Set(items.map((i) => i.category).filter((x) => x != null)).size;
     if (path === '/api/hushyar') {
-      return json(toHushyarExport(items, { topics, sources }), 200, 'public, max-age=120');
+      return jsonMin(toHushyarExport(items, { topics, sources }), 200, 'public, max-age=120');
     }
     const doc = toQwenAllExport(items, { topics, sources, categories });
     if (path === '/api/qwen') doc.feed = 'qwen-model';
     if (target) doc.target = target;
-    return json(doc, 200, 'public, max-age=120');
+    return jsonMin(doc, 200, 'public, max-age=120');
   }
 
   // ─── IronPin Quote.toJson export (since = incremental for external mode) ───
@@ -457,7 +466,7 @@ export async function handleApi(request, env, ctx) {
     const list = rows.results || [];
     const byKind = {};
     for (const s of list) byKind[s.kind] = (byKind[s.kind] || 0) + 1;
-    return json({
+    return jsonMin({
       ok: true,
       format: 'ironpin-sources-v1',
       generated_at: new Date().toISOString(),

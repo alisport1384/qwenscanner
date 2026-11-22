@@ -85,14 +85,16 @@ export function toHushyarExport(items, meta = {}) {
       topics: meta.topics || null,
       sources: meta.sources || null,
     },
+    // Absolute URLs so any consumer (Houshyar app, scripts, model pipeline)
+    // can open them directly without a base origin.
     links: {
-      self: '/api/hushyar',
-      qwen_model: '/api/qwen',
-      all_knowledge: '/api/report/all',
-      ironpin_quotes: '/api/ironpin',
-      ironpin_knowledge: '/api/report/all?target=ironpin',
-      sources: '/api/sources',
-      panel: '/',
+      self: 'https://qwen.alisport0.qzz.io/api/hushyar',
+      qwen_model: 'https://qwen.alisport0.qzz.io/api/qwen',
+      all_knowledge: 'https://qwen.alisport0.qzz.io/api/report/all',
+      ironpin_quotes: 'https://qwen.alisport0.qzz.io/api/ironpin',
+      ironpin_knowledge: 'https://qwen.alisport0.qzz.io/api/report/all?target=ironpin',
+      sources: 'https://qwen.alisport0.qzz.io/api/sources',
+      panel: 'https://qwen.alisport0.qzz.io/',
     },
     counts: {
       by_attribute: byAttribute,
