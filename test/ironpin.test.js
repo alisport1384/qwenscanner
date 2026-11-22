@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { processIronpinBatch, buildIronpinExport, streamIronpinExport, cityFromPhone, computeConversions } from '../src/ironpin.js';
+import { processIronpinBatch, buildIronpinExport, streamIronpinExport, cityFromPhone, computeConversions, extractPriceFromText, repairQuote } from '../src/ironpin.js';
 const row={rid:4,id:'k1',scan_id:'s1',topic:'میلگرد',claim:'میلگرد سایز 16 قیمت 25000 تومان هر کیلو تهران 1405/02/03',category:'rag',attribute:'price',url:'https://example.com/p',domain:'example.com',last_verified_at:Date.UTC(2026,0,1)};
 const keys=['id','endpoint','seller','sellerCity','title','category','material','brand','loading','loadingCity','unit','tax','currency','terms','sourceUrl','sourceDateRaw','status','amount','pieceKg','lengthM','areaM2','fetchedAt','size','thickness','dimensions','grade','details'];
 
@@ -14,11 +14,11 @@ test('incremental batch stores canonical Quote row and advances bounded cursor',
 });
 
 test('materialized export stream is valid single-GET JSON',async()=>{
- const quote={id:'qw:s1:k1',title:'میلگرد'};const db={prepare(sql){return{bind(){return{async first(){return{value:JSON.stringify({done:true})}}}},async all(){return{results:sql.includes('ironpin_quotes')?[{quote_json:JSON.stringify(quote),source_last_verified_at:1}]:[]}}}}};const res=await streamIronpinExport(db);assert.equal(res.headers.get('cache-control'),'public, max-age=900');const out=JSON.parse(await res.text());assert.equal(out.format,'ironpin-quotes-v1');assert.equal(out.count,1);assert.equal(out.complete,true);assert.deepEqual(out.quotes,[quote]);assert.equal(out.candidates_count,0);
+ const quote={id:'qw:s1:k1',title:'میلگرد',amount:25000,currency:'تومان'};const db={prepare(sql){return{bind(){return{async first(){return{value:JSON.stringify({done:true})}}}},async all(){return{results:sql.includes('ironpin_quotes')?[{quote_json:JSON.stringify(quote),source_last_verified_at:1}]:[]}}}}};const res=await streamIronpinExport(db);assert.equal(res.headers.get('cache-control'),'public, max-age=900');const out=JSON.parse(await res.text());assert.equal(out.format,'ironpin-quotes-v1');assert.equal(out.count,1);assert.equal(out.complete,true);assert.deepEqual(out.quotes,[quote]);assert.equal(out.candidates_count,0);
 });
 
 test('materialized output export loads stored Quote JSON',async()=>{
- const quote={id:'qw:s1:k1'};const db={prepare(sql){return{async all(){return{results:sql.includes('ironpin_quotes')?[{quote_json:JSON.stringify(quote)}]:[]}}}}};const out=await buildIronpinExport(db);assert.equal(out.format,'ironpin-quotes-v1');assert.equal(out.count,1);assert.deepEqual(out.quotes,[quote]);
+ const quote={id:'qw:s1:k1',amount:25000,currency:'تومان'};const db={prepare(sql){return{async all(){return{results:sql.includes('ironpin_quotes')?[{quote_json:JSON.stringify(quote)}]:[]}}}}};const out=await buildIronpinExport(db);assert.equal(out.format,'ironpin-quotes-v1');assert.equal(out.count,1);assert.deepEqual(out.quotes,[quote]);
 });
 
 test('cityFromPhone resolves geographic prefixes, null otherwise',()=>{
@@ -50,7 +50,7 @@ test('unit conversions: explicit wins, formulas by family, no invented tables',(
 
 test('incremental export honors since, returns cursor, skips candidates',async()=>{
  const binds=[];
- const rows=[{quote_json:'{"id":"a","amount":1}',source_last_verified_at:2000},{quote_json:'{"id":"b","amount":2}',source_last_verified_at:3000}];
+ const rows=[{quote_json:'{"id":"a","amount":1,"currency":"تومان"}',source_last_verified_at:2000},{quote_json:'{"id":"b","amount":2,"currency":"تومان"}',source_last_verified_at:3000}];
  const db={prepare(sql){return{bind(...args){
    binds.push({sql,args});
    return{async first(){return{value:JSON.stringify({done:true})}},async all(){return{results:rows}}};
@@ -78,4 +78,31 @@ test('incremental export with no new rows keeps cursor at since',async()=>{
  const out=JSON.parse(await res.text());
  assert.equal(out.count,0);
  assert.equal(out.cursor,777);
+});
+
+test('extractPriceFromText: explicit currency, rial conversion, gates',()=>{
+ const e1=extractPriceFromText('نرخ هر شاخه 155,000,000 ریال است');
+ assert.equal(e1.amount,15500000);
+ assert.equal(e1.fromRial,true);
+ const e2=extractPriceFromText('بین 101,820 تا 120,455 تومان');
+ assert.equal(e2.amount,120455);
+ assert.equal(e2.fromRial,false);
+ const e3=extractPriceFromText('قیمت میلگرد 125 هزار تومان');
+ assert.equal(e3.amount,125000);
+ // price-like negatives in the same segment never become a quote amount
+ assert.equal(extractPriceFromText('قیمت دلار 269,970 تومان امروز'),null);
+ // a number glued to a minus sign is not a price
+ assert.equal(extractPriceFromText('نوسان -580,000 ریال در هفته گذشته'),null);
+ // no explicit price → no quote (بدون قیمت ندار)
+ assert.equal(extractPriceFromText('میلگرد سایز 16 موجود در انبار'),null);
+});
+
+test('repairQuote enforces تومان-only contract at read time',()=>{
+ const ok={id:'a',amount:5000,currency:'تومان'};
+ assert.equal(repairQuote(ok),ok);
+ const fixed=repairQuote({id:'b',title:'ورق آهن',amount:null,currency:'نامشخص',details:{'متن پیام':'قیمت ورق 149,500 تومان هر کیلوگرم'}});
+ assert.equal(fixed.amount,149500);
+ assert.equal(fixed.currency,'تومان');
+ // priceless rows are dropped, never exported
+ assert.equal(repairQuote({id:'c',title:'خبر روز',amount:null}),null);
 });
