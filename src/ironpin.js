@@ -55,7 +55,7 @@ export function computeConversions(text='',{unit='unknown',size='',thickness='',
 const PRODUCT=/(میلگرد|تیر\s*آهن|تیرآهن|هاش|ناودانی|نبشی|پروفیل|قوطی|لوله|مانیسمان|اسپیرال|ورق|پلیت|شیت|چهارپهلو|شش[\s\u200c]*پر|مفتول|تسمه|سپری|رابیتس|توری|گابیون|مش\s*جوشی|شمش|بیلت|بلوم|اسلب|قراضه|(?:انکر\s*|رول\s*)?بولت|anchor\s*bolt|گندله|بریکت|فرو\s*آلیاژ|آهن\s*اسفنجی)/i;
 const digits=s=>String(s||'').replace(/[۰-۹]/g,c=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(c)).replace(/[٠-٩]/g,c=>'٠١٢٣٤٥٦٧٨٩'.indexOf(c));
 const clean=s=>digits(s).replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,'').replace(/[يك]/g,c=>c==='ي'?'ی':'ک').replace(/تومن/g,'تومان').replace(/\s+/g,' ').trim();
-const numeric=s=>{let n=digits(s).replace(/[٬,]/g,'').replace(/٫/g,'.').replace(/\s/g,'');const x=Number(n);return Number.isFinite(x)&&x>0?x:null};
+const numeric=s=>{let n=digits(s).replace(/[٬,/]/g,'').replace(/٫/g,'.').replace(/\s/g,'');if((n.match(/\./g)||[]).length>1)n=n.replace(/\./g,'');const x=Number(n);return Number.isFinite(x)&&x>0?x:0};
 function dateOf(s){let t=clean(s);let m=t.match(/(20\d\d)[/.-](\d{1,2})[/.-](\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/);if(m){let d=new Date(Date.UTC(+m[1],+m[2]-1,+m[3],+(m[4]||0),+(m[5]||0)));return Number.isNaN(+d)?null:d.toISOString()}m=t.match(/(1[34]\d\d)[/.-](\d{1,2})[/.-](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/);if(m){let gy=+m[1]+621,gm=+m[2],gd=+m[3]; // Jalali rough Gregorian conversion, only calendar-valid output
 let jy=+m[1]-979,jm=gm-1,jd=gd-1,jdn=365*jy+Math.floor(jy/33)*8+Math.floor((jy%33+3)/4);for(let i=0;i<jm;i++)jdn+=i<6?31:30;jdn+=jd+79;let gy2=1600+400*Math.floor(jdn/146097);jdn%=146097;let leap=true;if(jdn>=36525){jdn--;gy2+=100*Math.floor(jdn/36524);jdn%=36524;if(jdn>=365)jdn++ ;else leap=false;}gy2+=4*Math.floor(jdn/1461);jdn%=1461;if(jdn>=366){leap=false;jdn--;gy2+=Math.floor(jdn/365);jdn%=365;}let md=[31,leap?29:28,31,30,31,30,31,31,30,31,30,31],mo=0;while(mo<11&&jdn>=md[mo])jdn-=md[mo++];let d=new Date(Date.UTC(gy2,mo,jdn+1,+(m[4]||0),+(m[5]||0))-210*60000);return d.toISOString()}return null}
 const domainOf=(url,domain)=>{try{return new URL(url).hostname||domain||'نامشخص'}catch{return domain||'نامشخص'}};
@@ -64,9 +64,9 @@ const domainOf=(url,domain)=>{try{return new URL(url).hostname||domain||'نام�
  *  recorded for honesty). T2: قیمت/نرخ/بهای … number + explicit currency.
  *  Gates: no price-like negatives (دلار/طلا/…) in the same segment, 1000 ≤
  *  amount ≤ 1e9 تومان, numbers never glued to a sign/separator. */
-const PRICE_NEG=/(?:دلار|ارز\s|طلا|سکه|یورو|پوند|پلیمر|پیمتاش|شیشه|پلاستیک|دارو|قرص|کپسول|سهام|شاخص|برنج|فسفر|چدن|بیمه|وام|ملک|خودرو)/;
-const PRICE_T1=/(?<![\d,.٬\-])(\d[\d,.٬]*\d|\d)\s*(هزار|میلیون)?\s*(تومان|تومن|ریال)/g;
-const PRICE_T2=/(?:قیمت|نرخ|بهای)\s*[^0-9]{0,40}?(\d[\d,.٬]{3,}\d|\d{5,})\s*(هزار|میلیون)?\s*(تومان|تومن|ریال)/g;
+export const PRICE_NEG=/(?:دلار|ارز\s|طلا|سکه|یورو|پوند|پلیمر|پیمتاش|شیشه|پلاستیک|دارو|قرص|کپسول|سهام|شاخص|برنج|فسفر|چدن|بیمه|وام|ملک|خودرو)/;
+export const PRICE_T1=/(?<![\d,.٬\-])(\d[\d,.٬\/]*\d|\d)\s*(هزار|میلیون)?\s*(تومان|تومن|ریال|R(?![A-Za-z0-9])|T(?![A-Za-z0-9]))/g;
+export const PRICE_T2=/(?:قیمت|نرخ|بهای)\s*[^0-9]{0,40}?(\d[\d,.٬\/]{3,}\d|\d{5,})\s*(هزار|میلیون)?\s*(تومان|تومن|ریال|R(?![A-Za-z0-9])|T(?![A-Za-z0-9]))/g;
 function segmentAt(t,pos){
  const starts=[t.lastIndexOf('.',pos),t.lastIndexOf('\n',pos),t.lastIndexOf('؛',pos)];
  const start=Math.max(starts[0],starts[1],starts[2])+1;
@@ -79,12 +79,13 @@ export function extractPriceFromText(raw){
  if(!t)return null;
  for(const re of [PRICE_T1,PRICE_T2]){
   for(const m of t.matchAll(re)){
+   if(/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(m[1]))continue; // تقویمی، نه نرخ
    let a=numeric(m[1]);
    if(!a)continue;
    if(m[2]==='هزار')a*=1000;
    else if(m[2]==='میلیون')a*=1e6;
    let fromRial=false;
-   if(m[3]==='ریال'){a/=10;fromRial=true;}
+   if(m[3]==='ریال'||m[3]==='R'){a/=10;fromRial=true;}
    if(!(a>=1000&&a<=1e9))continue;
    if(PRICE_NEG.test(segmentAt(t,m.index)))continue;
    return {amount:a,fromRial};

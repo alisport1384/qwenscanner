@@ -95,6 +95,17 @@ test('extractPriceFromText: explicit currency, rial conversion, gates',()=>{
  assert.equal(extractPriceFromText('نوسان -580,000 ریال در هفته گذشته'),null);
  // no explicit price → no quote (بدون قیمت ندار)
  assert.equal(extractPriceFromText('میلگرد سایز 16 موجود در انبار'),null);
+ // R suffix (rubika channels) = ریال → ÷10
+ const r=extractPriceFromText('میلگرد 6 ساده 1.250.000R');
+ assert.equal(r.amount,125000);
+ assert.equal(r.fromRial,true);
+ // slash thousands (115/000/000 ریال)
+ const sl=extractPriceFromText('قیمت: شاخه‌ای ۱۱۵/۰۰۰/۰۰۰ ریال');
+ assert.equal(sl.amount,11500000);
+ // dot thousands (2.900.000 ریال)
+ assert.equal(extractPriceFromText('2.900.000 ریال').amount,290000);
+ // a calendar date is never a price, even next to a currency word
+ assert.equal(extractPriceFromText('به‌روزرسانی 1405/8/30 تومان'),null);
 });
 
 test('repairQuote enforces تومان-only contract at read time',()=>{
