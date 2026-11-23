@@ -8,7 +8,7 @@
  */
 
 import { searchWeb, diverse } from './engines.js';
-import { extractMainText, extractTitle, detectLang, normalizeUrl, domainOf } from './extract.js';
+import { extractMainText, extractTitle, detectLang, normalizeUrl, domainOf, telegramText } from './extract.js';
 import { extractQuotesFromPage, extractTableQuotes, storeQuotes } from './ironpin.js';
 import { extractFromPage } from './image_extract.js';
 
@@ -209,7 +209,10 @@ export async function runFetchPhase(scan, env, opts = {}) {
     }
 
     const title = extractTitle(html) || page.title || '';
-    const text = extractMainText(html, 6000);
+    const domain = domainOf(page.url);
+    const isTelegram = /(^|\.)t\.me$|(^|\.)telegram\.(me|org)$/.test(domain);
+    // Telegram streams: the newest messages carry today's prices — keep the tail.
+    const text = isTelegram ? (telegramText(html, { limit: 6000 }) || extractMainText(html, 6000)) : extractMainText(html, 6000);
 
     if (text.length < 100) {
       await pageDoneStmt.bind('skipped', httpStatus, 'too_short', text.length, nowTs, title, page.id).run();

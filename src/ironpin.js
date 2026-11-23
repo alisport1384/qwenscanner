@@ -13,7 +13,7 @@
  *    intermediate — the Qwen RAG/chunk pipeline is removed).
  */
 
-import { analyzeText, normalizeText } from './text_engine.js';
+import { analyzeText, normalizeText, dateIn } from './text_engine.js';
 import { phonesIn } from './city.js';
 import { readTables } from './table_reader.js';
 
@@ -139,6 +139,37 @@ function tehranDay(ts) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 }
 
+/**
+ * Fix an implausible announcement date at SERVE time.
+ * Rows stored by older builds carry year-3005 (bug in the Jalali converter).
+ * We can do better than hiding them: re-derive from the source's own written
+ * date (details['تاریخ متن منبع'] / details['شاهد ردیف']) with the fixed
+ * converter. When no written date can be recovered the row loses its date and
+ * gets 'تاریخ نامعتبر' — the app then falls back to fetchedAt semantics.
+ */
+export function fixQuoteDate(q, now = Date.now()) {
+  const d = q?.details;
+  const raw = String(q?.sourceDateRaw || '');
+  if (!raw) {
+    if (d && d['تاریخ نامعتبر']) delete d['تاریخ نامعتبر'];
+    return q;
+  }
+  const t = Date.parse(raw);
+  const year = Number.isFinite(t) ? new Date(t).getUTCFullYear() : NaN;
+  if (Number.isFinite(t) && year >= 2024 && t <= now + 24 * 3600_000) return q;
+  const witness = [d?.['تاریخ متن منبع'] || '', d?.['شاهد ردیف'] || ''].join(' ');
+  let derived = null;
+  try { derived = witness ? dateIn(witness) : null; } catch { derived = null; }
+  if (derived && Date.parse(derived) <= now + 24 * 3600_000) {
+    q.sourceDateRaw = derived;
+    if (d) delete d['تاریخ نامعتبر'];
+  } else {
+    q.sourceDateRaw = '';
+    if (d) d['تاریخ نامعتبر'] = 'بله';
+  }
+  return q;
+}
+
 /** Two or more of these in one claim = news/portal context, not a price. */
 const JUNK_MARKERS = ['کد خبر', 'کد مطلب', 'لینک کوتاه', 'خبرگزاری', 'تسنیم', 'ایسنا', 'فارس نیوز', 'به گزارش', 'بازی بعدی', 'رانندگی', 'استعلام', 'پرسپولیس', 'سخنگوی', 'مجلس شورا', 'تاریخ انتشار', 'صفحه نخست', 'اسرائیل', 'آمریکا', 'حمله', 'توافق', 'کنگره', 'قطعنامه', 'سازمان ملل', 'انتخابات', 'جنگ'];
 
@@ -177,6 +208,7 @@ export function repairQuote(q) {
   }
   const f = FENCES[q.unit];
   if (f && !(q.amount >= f[0] && q.amount <= f[1])) return null;
+  fixQuoteDate(q);
   // Title: product-anchored, specs only — never long prose/SEO text.
   if (typeof q.title === 'string' && q.title) {
     q.title = trimQuoteTitle(q.title);

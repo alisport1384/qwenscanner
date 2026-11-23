@@ -5,6 +5,8 @@ const BLOCK_RE =
 const COMMENT_RE = /<!--[\s\S]*?-->/g;
 const TAG_RE = /<\/?(?:p|div|br|li|tr|h[1-6]|section|article|blockquote|dd|dt|figcaption)[^>]*>/gi;
 const ANY_TAG_RE = /<[^>]+>/g;
+import { jalaliAnnouncementLine } from './text_engine.js';
+
 const ENTITIES = {
   amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
   ndash: '–', mdash: '—', hellip: '…', laquo: '«', raquo: '»',
@@ -68,6 +70,62 @@ export function extractMainText(html, limit = 6000) {
 
   if (s.length > limit) s = s.slice(0, limit);
   return s;
+}
+
+/**
+ * Telegram web-preview (`t.me/s/<channel>`) pages carry the message instant in
+ * a `datetime` attribute; the visible clock shows only HH:MM. Build a synthetic
+ * text the line analyzer can date-anchor per message, newest last:
+ *
+ *   1405/9/1 ساعت 14:24
+ *   <message text>
+ *
+ * Returns '' for pages that are not (or have no readable) telegram streams.
+ * Newest messages are kept when `limit` binds (the channel's tail is the news).
+ */
+export function telegramText(html, { limit = 6000, maxMessages = 40 } = {}) {
+  if (!html || !/tgme_widget_message_wrap|tgme_widget_message\b/.test(html)) return '';
+  const blocks = String(html).split(/(?=<div[^>]*class="[^"]*tgme_widget_message_wrap)/i);
+  const messages = [];
+  for (const block of blocks) {
+    if (messages.length >= maxMessages) break;
+    const dt = /datetime="([^"]+)"/.exec(block);
+    if (!dt) continue;
+    const instant = Date.parse(dt[1]);
+    if (!Number.isFinite(instant)) continue;
+    // Strip the chrome classes/scripts, keep visible text.
+    let s = block;
+    s = s.replace(/<script[\s\S]*?<\/script>/gi, ' ');
+    s = s.replace(/<a\b[^>]*class="[^"]*tgme_widget_message_views[^"]*"[^>]*>[\s\S]*?<\/a>/gi, ' ');
+    s = s.replace(TAG_RE, '\n');
+    s = s.replace(ANY_TAG_RE, ' ');
+    s = decodeEntities(s);
+    s = collapse(s);
+    // Drop UI furniture lines (reactions/views/reply labels add noise, never prices).
+    const body = s.split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .filter((l) => !/(views|بازدید)/i.test(l))
+      .filter((l) => !/media is not supported|^VIEW/i.test(l))
+      .filter((l) => !/^(?:[\d.]+\s*)?(?:❤|👍|🔥|😢|👏|😁|💊|😮|🙀)(?:\s*[\d.KMk]+)?(?:\s*(?:❤|👍|🔥|😢|👏|😁)\s*[\d.KMk]+)*$/i.test(l))
+      .filter((l) => !/^[\d.,KM:%/\-–]+$/.test(l)) // pure digits/punct, no letters
+      .join('\n');
+    if (!body) continue;
+    messages.push({ instant, jalali: jalaliAnnouncementLine(instant), body });
+  }
+  if (!messages.length) return '';
+  messages.sort((a, b) => a.instant - b.instant); // oldest → newest
+  const kept = [];
+  let chars = 0;
+  for (let i = messages.length - 1; i >= 0 && kept.length < maxMessages; i--) {
+    const m = messages[i];
+    const chunk = (m.jalali ? m.jalali + '\n' : '') + m.body;
+    if (chars + chunk.length + 2 > limit && kept.length > 0) break;
+    kept.push(chunk);
+    chars += chunk.length + 2;
+  }
+  kept.reverse();
+  return kept.join('\n\n');
 }
 
 /** Detect language tag: fa / en / mixed (report metadata `langTag`). */

@@ -217,6 +217,33 @@ function jalaliToGregorian(jy, jm, jd, hh, mm) {
 
 const JALALI_MONTHS = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'];
 
+/**
+ * Gregorian instant → Jalali parts for the SAME Iran wall-clock minute.
+ * Telegram HTML carries `datetime` in UTC; the feed must announce the Iran
+ * announcement day, so the caller passes the instant already shifted.
+ */
+export function gregorianToJalaliParts(instant) {
+  const d = new Date(instant);
+  if (Number.isNaN(+d)) return null;
+  const local = new Date(d.getTime() + 210 * 60000); // Iran = UTC+3:30
+  const fmt = new Intl.DateTimeFormat('en-US-u-ca-persian', {
+    timeZone: 'UTC', year: 'numeric', month: 'numeric', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: false,
+  });
+  const parts = {};
+  for (const p of fmt.formatToParts(local)) parts[p.type] = p.value;
+  const y = +parts.year, m = +parts.month, day = +parts.day;
+  const hh = String(parts.hour).padStart(2, '0'), mm = String(parts.minute).padStart(2, '0');
+  if (!y || !m || !day) return null;
+  return { year: y, month: m, day, time: `${hh}:${mm}` };
+}
+
+/** Jalali announcement line for analyzer date lines: «1405/9/1 ساعت 14:24». */
+export function jalaliAnnouncementLine(instant) {
+  const p = gregorianToJalaliParts(instant);
+  return p ? `${p.year}/${p.month}/${p.day} ساعت ${p.time}` : null;
+}
+
 export function dateIn(text) {
   const s = latin(text);
   // Gregorian ISO date (20xx-mm-dd)
