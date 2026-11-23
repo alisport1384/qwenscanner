@@ -303,7 +303,7 @@ export async function runFinderRound(env, { now = Date.now(), force = false, gua
 
   let added = 0;
   let queriesRun = 0;
-  const newLinks = [];
+  let newLinks = [];
 
   for (const part of FinderPart.all) {
     const qs = finderQueries(part, state.round);
@@ -333,6 +333,14 @@ export async function runFinderRound(env, { now = Date.now(), force = false, gua
       if (newLinks.length >= 30) break;
     }
     if (newLinks.length >= 30) break;
+  }
+
+  // Apply internal list caps (maxPerPart=250 / maxPerHost=10) before persisting
+  if (newLinks.length) {
+    const counts = await discoverCounts(env);
+    const capped = applyDiscoverCaps(newLinks.map((x) => x.link), counts);
+    const allowed = new Set(capped.kept.map((l) => l.key));
+    newLinks = newLinks.filter((x) => allowed.has(x.link.key));
   }
 
   // Persist new sources (batch)
@@ -371,6 +379,52 @@ export async function runFinderRound(env, { now = Date.now(), force = false, gua
   await setMeta(env, 'finder_state', JSON.stringify(state));
 
   return { round: state.round, added, scanned_queries: queriesRun, skipped_rest: false };
+}
+
+const MAX_PER_PART = 250;
+const MAX_PER_HOST = 10;
+
+/** Discovered-source counts (origin finder/harvest) per part and per site host.
+ *  Mirrors FinderState's lists: seeds & IronPin registries are not counted. */
+export async function discoverCounts(env) {
+  const perPart = [0, 0, 0];
+  const perHost = new Map();
+  try {
+    const rows = await env.DB.prepare(
+      `SELECT part, COUNT(*) c FROM sources WHERE origin IN ('finder','harvest') GROUP BY part`
+    ).all();
+    for (const r of rows.results || []) {
+      if (Number.isInteger(r.part) && r.part >= 0 && r.part < 3) perPart[r.part] = r.c;
+    }
+  } catch { /* empty */ }
+  try {
+    const rows = await env.DB.prepare(
+      `SELECT domain, COUNT(*) c FROM sources
+       WHERE origin IN ('finder','harvest') AND kind = 'site' GROUP BY domain`
+    ).all();
+    for (const r of rows.results || []) if (r.domain) perHost.set(r.domain, r.c);
+  } catch { /* empty */ }
+  return { perPart, perHost };
+}
+
+/** Apply internal list caps (maxPerPart=250 / maxPerHost=10) to new links. */
+export function applyDiscoverCaps(links, counts) {
+  const kept = [];
+  let dropped = 0;
+  for (const link of links) {
+    if (counts.perPart[link.part] >= MAX_PER_PART) { dropped++; continue; }
+    if (link.kind === 'site') {
+      let host = link.host;
+      if (!host) {
+        try { host = new URL(link.url).hostname.replace(/^www\./, ''); } catch { host = ''; }
+      }
+      if (host && (counts.perHost.get(host) || 0) >= MAX_PER_HOST) { dropped++; continue; }
+      if (host) counts.perHost.set(host, (counts.perHost.get(host) || 0) + 1);
+    }
+    counts.perPart[link.part] += 1;
+    kept.push(link);
+  }
+  return { kept, dropped };
 }
 
 const HARVEST_TOPIC = 'منابع قیمت آهن — جستجوگر ۲';
@@ -416,7 +470,7 @@ export async function ensureHarvestScan(env, now = Date.now()) {
   return id;
 }
 
-async function enqueueReadable(env, links, now) {
+export async function enqueueReadable(env, links, now) {
   // Never re-enqueue dead sources — only live/new readable ones
   let dead = new Set();
   try {

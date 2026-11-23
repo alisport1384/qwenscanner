@@ -10,7 +10,7 @@
 import { searchWeb, diverse } from './engines.js';
 import { extractMainText, extractTitle, detectLang, normalizeUrl, domainOf, telegramText } from './extract.js';
 import { resolvePageCity } from './city.js';
-import { classifyLink } from './finder.js';
+import { classifyLink, discoverCounts, applyDiscoverCaps, enqueueReadable } from './finder.js';
 import { extractQuotesFromPage, extractTableQuotes, storeQuotes } from './ironpin.js';
 import { extractFromPage } from './image_extract.js';
 
@@ -357,15 +357,21 @@ export async function runFetchPhase(scan, env, opts = {}) {
     try {
       const tg = harvestTelegramLinks(html);
       if (tg.length) {
-        const stmts = [];
-        for (const link of tg) {
-          stmts.push(env.DB.prepare(
-            `INSERT INTO sources (url, domain, kind, part, name, key, readable, origin, state, created_at, last_checked_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'harvest', 'new', ?8, ?8)
-             ON CONFLICT(key) DO NOTHING`
-          ).bind(link.url, link.host || '', link.kind, link.part ?? 1, '', link.key, link.readable ? 1 : 0, nowTs));
+        const counts = await discoverCounts(env);
+        const { kept } = applyDiscoverCaps(tg, counts);
+        if (kept.length) {
+          const stmts = kept.map((link) =>
+            env.DB.prepare(
+              `INSERT INTO sources (url, domain, kind, part, name, key, readable, origin, state, created_at, last_checked_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'harvest', 'new', ?8, ?8)
+               ON CONFLICT(key) DO NOTHING`
+            ).bind(link.url, link.host || '', link.kind, link.part ?? 1, '', link.key, link.readable ? 1 : 0, nowTs)
+          );
+          await env.DB.batch(stmts);
+          // Like the internal offerLinks → verify pipeline: readable finds are
+          // enqueued onto the standing harvest scan so they get read for prices.
+          await enqueueReadable(env, kept, nowTs);
         }
-        await env.DB.batch(stmts);
       }
     } catch (e) { /* harvest is best-effort — never blocks storing quotes */ }
     if (pageSellerCity !== 'نامشخص') {
