@@ -131,7 +131,8 @@ export async function runSearchPhase(scan, env, opts = {}) {
 /** Phase FETCH: claim pending pages, Searcher-1 extract, store Quotes. */
 export async function runFetchPhase(scan, env, opts = {}) {
   const g = opts.guardian;
-  if (g && g.expired()) return;
+  if (g && g.expired()) return false;
+  if (g && !g.allowFetch(1)) return false; // لا fetch مسموح امروز — صف را دست نزن
   const perTick = intVar(env, 'PAGES_PER_TICK', 5);
 
   const claimed = await env.DB.prepare(
@@ -151,7 +152,7 @@ export async function runFetchPhase(scan, env, opts = {}) {
     const inFlight = await env.DB.prepare(
       `SELECT COUNT(*) AS c FROM pages WHERE scan_id = ?1 AND status IN ('pending','claimed')`
     ).bind(scan.id).first();
-    if ((inFlight?.c || 0) > 0) return;
+    if ((inFlight?.c || 0) > 0) return false;
 
     const totals = await env.DB.prepare(
       `SELECT
@@ -179,7 +180,7 @@ export async function runFetchPhase(scan, env, opts = {}) {
       now(),
       scan.id
     ).run();
-    return;
+    return true;
   }
 
   const pageDoneStmt = env.DB.prepare(
@@ -189,6 +190,7 @@ export async function runFetchPhase(scan, env, opts = {}) {
   );
 
   const nowTs = now();
+  const processed = new Set();
   let deltaDone = 0;
   let deltaQuotes = 0;
 
@@ -196,6 +198,7 @@ export async function runFetchPhase(scan, env, opts = {}) {
     if (g && g.expired()) break;
     if (g && !g.allowFetch(1)) break;
     if (g) g.spendFetch(1);
+    processed.add(page.id);
     const { html, status: httpStatus, error: fetchErr } = await fetchPageText(page.url);
 
     if (fetchErr || !html) {
@@ -277,6 +280,13 @@ export async function runFetchPhase(scan, env, opts = {}) {
     await syncSourceState(env, page.url, 'done');
   }
 
+  const unprocessed = pages.filter((pg) => !processed.has(pg.id)).map((pg) => pg.id);
+  if (unprocessed.length) {
+    const marks = unprocessed.map(() => '?').join(',');
+    await env.DB.prepare(
+      `UPDATE pages SET status = 'pending', claimed_at = NULL WHERE id IN (${marks})`
+    ).bind(...unprocessed).run();
+  }
   if (deltaDone > 0 || deltaQuotes > 0) {
     await env.DB.prepare(
       `UPDATE scans SET pages_done = pages_done + ?1, knowledge_count = knowledge_count + ?2,
@@ -284,6 +294,7 @@ export async function runFetchPhase(scan, env, opts = {}) {
        WHERE id = ?4`
     ).bind(deltaDone, deltaQuotes, nowTs, scan.id).run();
   }
+  return true;
 }
 
 /** Sync sources.state from page outcome: dead after repeated failure, live after quotes. */
@@ -350,7 +361,10 @@ export async function runTick(env, opts = {}) {
     if ((queued.updated_at || 0) <= (fetching.updated_at || 0)) {
       await markSearchingAndSearch(queued, env, opts);
     } else {
-      await runFetchPhase(fetching, env, opts);
+      const worked = await runFetchPhase(fetching, env, opts);
+      if (worked === false) {
+        await env.DB.prepare('UPDATE scans SET updated_at = ?1 WHERE id = ?2').bind(now() + 10 * 60_000, fetching.id).run();
+      }
     }
     return true;
   }
@@ -360,7 +374,10 @@ export async function runTick(env, opts = {}) {
     return true;
   }
 
-  await runFetchPhase(fetching, env, opts);
+  const worked = await runFetchPhase(fetching, env, opts);
+  if (worked === false && fetching) {
+    await env.DB.prepare('UPDATE scans SET updated_at = ?1 WHERE id = ?2').bind(now() + 10 * 60_000, fetching.id).run();
+  }
   return true;
 }
 
