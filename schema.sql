@@ -1,82 +1,77 @@
-CREATE TABLE IF NOT EXISTS batches (
-  id            TEXT PRIMARY KEY,
-  title         TEXT,
-  topics_count  INTEGER NOT NULL DEFAULT 0,
-  created_at    INTEGER NOT NULL,
-  updated_at    INTEGER NOT NULL
+-- IronPin Searcher-2 (هوش جستجوگر ۲) — Strict Source Discovery Schema
+
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS scans (
-  id            TEXT PRIMARY KEY,
-  batch_id      TEXT,
-  topic         TEXT NOT NULL,
-  status        TEXT NOT NULL DEFAULT 'queued',
-  phase         TEXT NOT NULL DEFAULT 'search',
-  auto_refresh  INTEGER NOT NULL DEFAULT 1,
-  refresh_hours INTEGER NOT NULL DEFAULT 24,
-  next_refresh_at INTEGER,
-  pages_total   INTEGER NOT NULL DEFAULT 0,
-  pages_done    INTEGER NOT NULL DEFAULT 0,
-  knowledge_count INTEGER NOT NULL DEFAULT 0,
-  engines_used  TEXT NOT NULL DEFAULT '[]',
-  error         TEXT,
-  created_at    INTEGER NOT NULL,
-  updated_at    INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS pages (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  scan_id     TEXT NOT NULL,
-  url         TEXT NOT NULL,
-  domain      TEXT NOT NULL,
-  title       TEXT,
-  source      TEXT,
-  query       TEXT,
-  status      TEXT NOT NULL DEFAULT 'pending',
-  http_status INTEGER,
-  error       TEXT,
-  chars       INTEGER NOT NULL DEFAULT 0,
-  attempts    INTEGER NOT NULL DEFAULT 0,
-  claimed_at  INTEGER,
-  fetched_at  INTEGER,
-  created_at  INTEGER NOT NULL,
-  UNIQUE (scan_id, url)
+CREATE TABLE IF NOT EXISTS custom_products (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  normalized TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL DEFAULT 'pending',
+  queries_done INTEGER NOT NULL DEFAULT 0,
+  queries_total INTEGER NOT NULL DEFAULT 0,
+  discovered_count INTEGER NOT NULL DEFAULT 0,
+  last_scanned_at INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS sources (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  url         TEXT NOT NULL,
-  domain      TEXT NOT NULL DEFAULT '',
-  kind        TEXT NOT NULL DEFAULT 'site',
-  part        INTEGER NOT NULL DEFAULT 0,
-  name        TEXT,
-  key         TEXT NOT NULL UNIQUE,
-  readable    INTEGER NOT NULL DEFAULT 1,
-  origin      TEXT NOT NULL DEFAULT 'seed',
-  state       TEXT NOT NULL DEFAULT 'new',
-  created_at  INTEGER NOT NULL,
-  last_checked_at INTEGER
+  key TEXT PRIMARY KEY,
+  url TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  part INTEGER NOT NULL,
+  host TEXT NOT NULL DEFAULT '',
+  handle TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '',
+  site_name TEXT NOT NULL DEFAULT '',
+  contact TEXT NOT NULL DEFAULT '',
+  city TEXT NOT NULL DEFAULT 'نامشخص',
+  has_table INTEGER NOT NULL DEFAULT 0,
+  readable INTEGER NOT NULL DEFAULT 0,
+  state TEXT NOT NULL DEFAULT 'new',
+  verify_tries INTEGER NOT NULL DEFAULT 0,
+  depth INTEGER NOT NULL DEFAULT 0,
+  is_inner INTEGER NOT NULL DEFAULT 0,
+  hinted INTEGER NOT NULL DEFAULT 0,
+  origin TEXT NOT NULL DEFAULT 'search',
+  matched_product TEXT NOT NULL DEFAULT '',
+  discovered_from TEXT NOT NULL DEFAULT '',
+  provider TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  next_retry_at INTEGER NOT NULL DEFAULT 0,
+  discovered_at INTEGER NOT NULL,
+  verified_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS meta (
-  key         TEXT PRIMARY KEY,
-  value       TEXT NOT NULL,
-  updated_at  INTEGER NOT NULL
+CREATE INDEX IF NOT EXISTS idx_sources_state_retry
+  ON sources(state, next_retry_at, depth, discovered_at);
+
+CREATE INDEX IF NOT EXISTS idx_sources_part_state
+  ON sources(part, state, verified_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_sources_host
+  ON sources(host);
+
+CREATE INDEX IF NOT EXISTS idx_sources_product
+  ON sources(matched_product);
+
+CREATE TABLE IF NOT EXISTS search_tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  part INTEGER NOT NULL,
+  query TEXT NOT NULL,
+  product_name TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending',
+  tries INTEGER NOT NULL DEFAULT 0,
+  cycle_id INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  UNIQUE(kind, query)
 );
 
-CREATE TABLE IF NOT EXISTS ironpin_quotes (
-  scan_id TEXT NOT NULL,
-  knowledge_id TEXT NOT NULL,
-  source_last_verified_at INTEGER NOT NULL,
-  quote_json TEXT NOT NULL,
-  PRIMARY KEY (scan_id, knowledge_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_ironpin_quotes_verified ON ironpin_quotes (source_last_verified_at);
-CREATE INDEX IF NOT EXISTS idx_scans_status ON scans (status, phase, next_refresh_at);
-CREATE INDEX IF NOT EXISTS idx_scans_batch ON scans (batch_id);
-CREATE INDEX IF NOT EXISTS idx_pages_scan_status ON pages (scan_id, status);
-CREATE INDEX IF NOT EXISTS idx_pages_claimed ON pages (status, claimed_at);
-CREATE INDEX IF NOT EXISTS idx_sources_part ON sources (part, kind);
-CREATE INDEX IF NOT EXISTS idx_pages_url ON pages (url);
-CREATE INDEX IF NOT EXISTS idx_sources_url ON sources (url);
+CREATE INDEX IF NOT EXISTS idx_tasks_status
+  ON search_tasks(status, id);

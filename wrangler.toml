@@ -4,25 +4,19 @@ compatibility_date = "2026-05-01"
 
 [assets]
 directory = "./public"
-run_worker_first = ["/api/*", "/report/*"]
+run_worker_first = ["/api/*"]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "qwen_scanner"
 database_id = "da86e390-bf90-4e29-b7df-ea903729c967"
 
-# نگهبان اسکنر — استخراج تایپ‌شده از تصویر (Clairic) به binding نیاز دارد.
-[ai]
-binding = "AI"
-
 [triggers]
-crons = ["* * * * *", "*/5 * * * *", "0 */6 * * *"]
+crons = ["*/5 * * * *"]
 
 [vars]
-MAX_PAGES_PER_SCAN = "12"
-PAGES_PER_TICK = "5"
-SEARCH_QUERY_LIMIT = "3"
-# نگهبان اسکنر — حداقل مصرف
-TICK_BUDGET_MS = "45000"        # سقف دیواری هر اجرای cron — هم‌تراز تجربهٔ زنده؛ burst زیر سقف subrequest پلن رایگان
-DAILY_FETCH_LIMIT = "3000"      # سقف درخواست خروجی روزانه (صفحه/تصویر) — هم‌تراز اسکنر داخلی
-IMAGE_EXTRACT_LIMIT = "200"     # سقف فراخوانی روزانهٔ استخراج تصویر — هم‌تراز اسکنر داخلی
+DEFAULT_REFRESH_HOURS = "24"
+SEARCH_QUERIES_PER_TICK = "3"
+VERIFIES_PER_TICK = "8"
+MAX_SUBREQUESTS_PER_TICK = "28"
+FETCH_TIMEOUT_MS = "9000"

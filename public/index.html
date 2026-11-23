@@ -1,632 +1,743 @@
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>اسکنر آیرون پین — پنل</title>
-<style>
-:root {
-  color-scheme: dark;
-  --bg: #0d1117; --panel: #161b22; --border: #30363d; --text: #e6edf3;
-  --muted: #8b949e; --accent: #58a6ff; --green: #3fb950; --red: #f85149;
-  --amber: #d29922; --purple: #bc8cff;
-}
-* { box-sizing: border-box; }
-body {
-  margin: 0; padding: 20px 16px 40px; font-family: Vazirmatn, Tahoma, "Segoe UI", sans-serif;
-  background: var(--bg); color: var(--text); line-height: 1.7;
-}
-.wrap { max-width: 960px; margin: 0 auto; }
-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
-h1 { font-size: 1.35rem; margin: 0; }
-h1 span { color: var(--accent); }
-.health { font-size: .8rem; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; }
-.dot.down { background: var(--red); }
-
-.card {
-  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
-  padding: 18px; margin-bottom: 16px;
-}
-.card h2 { font-size: 1rem; margin: 0 0 12px; color: var(--muted); font-weight: 600; }
-
-/* stats */
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
-.stat {
-  background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
-  padding: 12px; text-align: center;
-}
-.stat .num { font-size: 1.4rem; font-weight: 700; color: var(--accent); }
-.stat .lbl { font-size: .75rem; color: var(--muted); }
-
-/* form */
-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
-.field { flex: 1 1 280px; display: flex; flex-direction: column; gap: 6px; }
-label { font-size: .82rem; color: var(--muted); }
-input[type="text"], input[type="number"], select, textarea {
-  width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
-  background: var(--bg); color: var(--text); font-size: .95rem; font-family: inherit;
-}
-input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
-.row { display: flex; flex-wrap: wrap; gap: 10px; width: 100%; }
-.row .field { flex: 1 1 140px; }
-.check { display: flex; align-items: center; gap: 8px; font-size: .88rem; color: var(--muted); margin-top: 4px; }
-button {
-  padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer;
-  font-size: .95rem; font-family: inherit; font-weight: 600;
-}
-.btn-primary { background: var(--green); color: #fff; }
-.btn-primary:hover { filter: brightness(1.1); }
-.btn-primary:disabled { opacity: .5; cursor: not-allowed; }
-.btn-ghost {
-  background: transparent; color: var(--accent); border: 1px solid var(--border);
-  padding: 6px 12px; font-size: .82rem;
-}
-.btn-ghost:hover { border-color: var(--accent); }
-.btn-danger { background: transparent; color: var(--red); border: 1px solid var(--border); padding: 6px 12px; font-size: .82rem; }
-.btn-danger:hover { border-color: var(--red); }
-
-/* scans table */
-.scans { display: flex; flex-direction: column; gap: 10px; }
-.scan {
-  background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
-  padding: 14px 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
-  justify-content: space-between;
-}
-.scan .info { flex: 1 1 240px; min-width: 0; }
-.scan .topic { font-weight: 700; font-size: .98rem; word-break: break-word; }
-.scan .sub { font-size: .78rem; color: var(--muted); margin-top: 4px; display: flex; flex-wrap: wrap; gap: 10px; }
-.badge {
-  display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .75rem;
-  background: var(--border); color: var(--text);
-}
-.badge.queued, .badge.searching { background: #d2992233; color: var(--amber); }
-.badge.fetching { background: #58a6ff22; color: var(--accent); }
-.badge.done { background: #3fb95022; color: var(--green); }
-.badge.failed { background: #f8514922; color: var(--red); }
-.progress {
-  height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;
-  margin-top: 8px; max-width: 280px;
-}
-.progress i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
-.scan .actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.scan .actions a, .scan .actions button { text-decoration: none; }
-
-/* settings / db */
-.db-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; font-size: .85rem; }
-.db-grid div { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
-.db-grid .k { color: var(--muted); font-size: .75rem; }
-.db-grid .v { font-family: monospace; color: var(--purple); word-break: break-all; margin-top: 2px; }
-
-/* toast */
-#toast {
-  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-  background: var(--panel); border: 1px solid var(--border); color: var(--text);
-  padding: 10px 20px; border-radius: 8px; font-size: .9rem; opacity: 0;
-  pointer-events: none; transition: opacity .3s; z-index: 50; max-width: 90vw;
-}
-#toast.show { opacity: 1; }
-#toast.err { border-color: var(--red); color: var(--red); }
-
-.empty { color: var(--muted); text-align: center; padding: 24px 0; font-size: .9rem; }
-footer { text-align: center; color: #484f58; font-size: .75rem; margin-top: 24px; }
-code { background: var(--panel); padding: 1px 6px; border-radius: 4px; font-size: .85em; }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>آیرون‌پین • سرور هوش جستجوگر ۲</title>
+  <style>
+    :root {
+      --bg: #0b1316;
+      --card: #121e23;
+      --card2: #16252b;
+      --border: #233840;
+      --text: #e6f1f3;
+      --muted: #8ea7af;
+      --teal: #2dd4bf;
+      --teal-dim: rgba(45, 212, 191, 0.14);
+      --amber: #f59e0b;
+      --amber-dim: rgba(245, 158, 11, 0.15);
+      --red: #f87171;
+      --red-dim: rgba(248, 113, 113, 0.15);
+      --green: #4ade80;
+      --green-dim: rgba(74, 222, 128, 0.14);
+      --blue: #60a5fa;
+      --blue-dim: rgba(96, 165, 250, 0.14);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Tahoma, "Vazirmatn", "Segoe UI", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.65;
+    }
+    .wrap {
+      max-width: 1220px;
+      margin: 0 auto;
+      padding: 18px 16px 48px;
+    }
+    header {
+      background: linear-gradient(135deg, #102027 0%, #152b33 100%);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px 20px;
+      margin-bottom: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    h1 {
+      margin: 0 0 4px;
+      font-size: 18px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .sub { color: var(--muted); font-size: 12px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    button, .btn {
+      font-family: inherit;
+      font-size: 12px;
+      padding: 8px 14px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: var(--card2);
+      color: var(--text);
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: border-color .15s, background .15s;
+    }
+    button:hover, .btn:hover { border-color: var(--teal); }
+    button.primary {
+      background: #0f766e;
+      border-color: #14b8a6;
+      color: #fff;
+      font-weight: bold;
+    }
+    button.primary:hover { background: #0d9488; }
+    button.danger { border-color: rgba(248, 113, 113, 0.45); color: var(--red); }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    input[type="text"], input[type="number"] {
+      font-family: inherit;
+      font-size: 12px;
+      padding: 8px 11px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: #0c161a;
+      color: var(--text);
+      outline: none;
+    }
+    input:focus { border-color: var(--teal); }
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .kpi-label { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+    .kpi-val { font-size: 24px; font-weight: bold; color: #fff; }
+    .kpi-sub { font-size: 11px; color: var(--teal); margin-top: 2px; }
+    .section-title {
+      font-size: 14px;
+      font-weight: bold;
+      margin: 0 0 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .b-teal { background: var(--teal-dim); color: var(--teal); border-color: rgba(45,212,191,.28); }
+    .b-green { background: var(--green-dim); color: var(--green); border-color: rgba(74,222,128,.28); }
+    .b-amber { background: var(--amber-dim); color: var(--amber); border-color: rgba(245,158,11,.28); }
+    .b-red { background: var(--red-dim); color: var(--red); border-color: rgba(248,113,113,.28); }
+    .b-blue { background: var(--blue-dim); color: var(--blue); border-color: rgba(96,165,250,.28); }
+    .b-muted { background: rgba(142,167,175,.1); color: var(--muted); border-color: var(--border); }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .bar-wrap { margin-bottom: 10px; }
+    .bar-head { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px; }
+    .bar-track {
+      height: 7px;
+      background: #0c1518;
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid #1c2e35;
+    }
+    .bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #0d9488, #2dd4bf);
+      border-radius: 999px;
+      transition: width .3s;
+    }
+    .engines-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 9px;
+    }
+    .eng-item {
+      background: var(--card2);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 9px 11px;
+      font-size: 11px;
+    }
+    .eng-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+      font-weight: bold;
+      color: #fff;
+    }
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 8px;
+      color: var(--muted);
+    }
+    .tab-btn.active {
+      background: var(--teal-dim);
+      border-color: var(--teal);
+      color: var(--teal);
+      font-weight: bold;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th, td {
+      text-align: right;
+      padding: 8px 10px;
+      border-bottom: 1px solid #1c2e35;
+      vertical-align: top;
+    }
+    th {
+      color: var(--muted);
+      font-weight: normal;
+      font-size: 11px;
+      background: #0f191d;
+    }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+    a.src-link {
+      color: var(--teal);
+      text-decoration: none;
+      word-break: break-all;
+      direction: ltr;
+      display: inline-block;
+      text-align: left;
+    }
+    a.src-link:hover { text-decoration: underline; }
+    .prod-chip {
+      background: var(--card2);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 7px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 8px;
+      font-size: 12px;
+    }
+    .toast {
+      position: fixed;
+      bottom: 18px;
+      left: 18px;
+      background: #0f766e;
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 10px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+      display: none;
+      z-index: 99;
+      font-size: 12px;
+    }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; direction: ltr; display: inline-block; }
+    .scroll-x { overflow-x: auto; }
+  </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <h1>🔍 اسکنر <span>آیرون پین</span> — آینه اسکنر داخلی</h1>
-    <div class="health"><span class="dot" id="healthDot"></span><span id="healthTxt">در حال اتصال…</span></div>
-  </header>
-
-  <!-- stats -->
-  <div class="card">
-    <h2>آمار دیتابیس</h2>
-    <div class="stats">
-      <div class="stat"><div class="num" id="stScans">—</div><div class="lbl">اسکن</div></div>
-      <div class="stat"><div class="num" id="stActive">—</div><div class="lbl">فعال</div></div>
-      <div class="stat"><div class="num" id="stPages">—</div><div class="lbl">صفحه</div></div>
-      <div class="stat"><div class="num" id="stKnowledge">—</div><div class="lbl">ردیف قیمت</div></div>
-      <div class="stat"><div class="num" id="stBatches">—</div><div class="lbl">لیست</div></div>
-      <div class="stat"><div class="num" id="stSources">—</div><div class="lbl">منابع</div></div>
-    </div>
-  </div>
-
-  <!-- permanent links -->
-  <div class="card">
-    <h2>لینک‌های پایدار</h2>
-    <div class="row" style="gap:10px;flex-wrap:wrap">
-      <a class="btn-ghost" href="/report/all" target="_blank" style="text-decoration:none;padding:8px 14px;border:1px solid var(--border);border-radius:8px">📚 گزارش‌ها (زنده)</a>
-      <a class="btn-ghost" href="/api/report/all" target="_blank" style="text-decoration:none;padding:8px 14px;border:1px solid var(--border);border-radius:8px">JSON گزارش‌ها</a>
-      <a class="btn-ghost" href="/api/ironpin" target="_blank" style="text-decoration:none;padding:8px 14px;border:1px solid var(--border);border-radius:8px">🔗 خروجی ردیف‌های IronPin (Quote)</a>
-      <a class="btn-ghost" href="/report/sources" target="_blank" style="text-decoration:none;padding:8px 14px;border:1px solid var(--border);border-radius:8px">فهرست منابع</a>
-      <a class="btn-ghost" href="/api/sources" target="_blank" style="text-decoration:none;padding:8px 14px;border:1px solid var(--border);border-radius:8px">JSON منابع</a>
-    </div>
-    <div class="sub" style="margin-top:10px">اسکنر آینه‌ای از اسکنر داخلی آیرون پین است — فقط ردیف‌های قیمت آیرون‌پین ذخیره و ارائه می‌شود؛ مسیر RAG/دانش کوئن حذف شده است.</div>
-  </div>
-
-  <!-- new scan (single) -->
-  <div class="card">
-    <h2>اسکن جدید (تکی)</h2>
-    <form id="scanForm">
-      <div class="field">
-        <label for="topic">موضوع جستجو (از سطح وب)</label>
-        <input type="text" id="topic" name="topic" placeholder="مثلاً: قیمت ورق گالوانیزه 0.5" maxlength="200" required autocomplete="off">
-      </div>
-      <div class="row">
-        <div class="field">
-          <label for="refreshHours">بازه اسکن خودکار (ساعت)</label>
-          <input type="number" id="refreshHours" value="24" min="1" max="720">
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>
+          <span>آیرون‌پین • سرور هوش جستجوگر ۲</span>
+          <span class="badge b-teal" id="modeBadge">کشف منابع (بدون استخراج قیمت)</span>
+        </h1>
+        <div class="sub">
+          کشف خودکار وب‌سایت‌ها، شبکه‌های اجتماعی و شبکه‌های داخلی فروش مقاطع فولادی برای تغذیه جستجوگر ۱ و OCR در برنامه IronPin
         </div>
-        <div class="field">
-          <label>&nbsp;</label>
-          <div class="check">
-            <input type="checkbox" id="autoRefresh" checked>
-            <label for="autoRefresh" style="margin:0">اسکن خودکار در نبود من (cron)</label>
+      </div>
+      <div class="actions">
+        <a class="btn" href="/api/sources" target="_blank">خروجی JSON منابع (/api/sources)</a>
+        <button onclick="copyEndpoint()">کپی لینک API</button>
+        <button class="primary" id="btnScan" onclick="triggerScan()">اسکن فوری الان</button>
+        <button onclick="loadStatus()">به‌روزرسانی</button>
+      </div>
+    </header>
+
+    <!-- KPI Row -->
+    <div class="grid-4">
+      <div class="card">
+        <div class="kpi-label">کل منابع تاییدشده</div>
+        <div class="kpi-val" id="kTotal">۰</div>
+        <div class="kpi-sub" id="kReadable">۰ منبع قابل خواندن توسط IronPin</div>
+      </div>
+      <div class="card">
+        <div class="kpi-label">وب‌سایت‌های فروش و پخش</div>
+        <div class="kpi-val" id="kSites">۰</div>
+        <div class="kpi-sub">لیست ۱ • جداول و صفحات قیمت</div>
+      </div>
+      <div class="card">
+        <div class="kpi-label">شبکه‌های اجتماعی</div>
+        <div class="kpi-val" id="kSocial">۰</div>
+        <div class="kpi-sub">لیست ۲ • تلگرام، اینستاگرام، واتساپ</div>
+      </div>
+      <div class="card">
+        <div class="kpi-label">شبکه‌های داخلی ایران</div>
+        <div class="kpi-val" id="kDomestic">۰</div>
+        <div class="kpi-sub">لیست ۳ • ایتا، بله، روبیکا، سروش، آی‌گپ</div>
+      </div>
+    </div>
+
+    <!-- Cycle & Custom Products -->
+    <div class="grid-2">
+      <div class="card">
+        <div class="section-title">
+          <span>چرخه خودکار و زمان‌بندی اسکن</span>
+          <span class="badge b-muted" id="cycleBadge">آماده‌باش</span>
+        </div>
+        <div id="cycleInfo" class="sub" style="margin-bottom:10px;">در حال دریافت وضعیت...</div>
+        <div class="row" style="margin-bottom:10px;">
+          <label for="refreshHours">بازه اسکن خودکار (ساعت):</label>
+          <input type="number" id="refreshHours" min="1" max="168" value="24" style="width:76px;" />
+          <label class="row" style="gap:5px; cursor:pointer;">
+            <input type="checkbox" id="autoEnabled" checked />
+            <span>اسکن خودکار فعال</span>
+          </label>
+          <button onclick="saveConfig()">ذخیره تنظیمات</button>
+        </div>
+        <div class="row" style="justify-content:space-between; border-top:1px solid var(--border); padding-top:10px;">
+          <div class="sub" id="queueStats">صف جستجو: ۰ • صف بررسی: ۰ • دسترس‌ناپذیر: ۰ • ردشده: ۰</div>
+          <button class="danger" onclick="resetDb()">بازنشانی پایگاه‌داده</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">
+          <span>افزودن محصول برای کشف منابع جدید</span>
+          <span class="badge b-blue" id="prodCount">۰ محصول</span>
+        </div>
+        <div class="sub" style="margin-bottom:8px;">
+          نام محصول یا برند را وارد کنید تا سرور روی ۹ موتور جستجو و ۶ دایرکتوری به دنبال وب‌سایت و کانال‌های فروش آن بگردد و برای IronPin ذخیره کند.
+        </div>
+        <form class="row" onsubmit="addProduct(event)">
+          <input type="text" id="prodInput" placeholder="مثلاً: میلگرد زاگرس یا ورق گالوانیزه کاشان" style="flex:1; min-width:200px;" />
+          <button type="submit" class="primary" id="btnAddProd">افزودن و جستجو</button>
+        </form>
+        <div id="prodList" style="margin-top:8px; max-height:190px; overflow-y:auto;"></div>
+      </div>
+    </div>
+
+    <!-- Cloudflare Free Tier Usage -->
+    <div class="card" style="margin-bottom:16px;">
+      <div class="section-title">
+        <span>مصرف و سقف‌های پلن رایگان Cloudflare (Workers + D1)</span>
+        <div class="row">
+          <span class="sub" id="usageDate"></span>
+          <button onclick="refreshUsage()">به‌روزرسانی آمار Cloudflare</button>
+        </div>
+      </div>
+      <div class="grid-2" style="margin-bottom:0;">
+        <div>
+          <div class="bar-wrap">
+            <div class="bar-head"><span>حجم دیتابیس D1</span><span id="uStorage">-</span></div>
+            <div class="bar-track"><div class="bar-fill" id="bStorage" style="width:0%"></div></div>
+          </div>
+          <div class="bar-wrap">
+            <div class="bar-head"><span>ردیف‌های خوانده‌شده امروز (سقف ۵ میلیون)</span><span id="uReads">-</span></div>
+            <div class="bar-track"><div class="bar-fill" id="bReads" style="width:0%"></div></div>
+          </div>
+        </div>
+        <div>
+          <div class="bar-wrap">
+            <div class="bar-head"><span>ردیف‌های نوشته‌شده امروز (سقف ۱۰۰ هزار)</span><span id="uWrites">-</span></div>
+            <div class="bar-track"><div class="bar-fill" id="bWrites" style="width:0%"></div></div>
+          </div>
+          <div class="bar-wrap">
+            <div class="bar-head"><span>درخواست‌های Worker امروز (سقف ۱۰۰ هزار)</span><span id="uReqs">-</span></div>
+            <div class="bar-track"><div class="bar-fill" id="bReqs" style="width:0%"></div></div>
           </div>
         </div>
       </div>
-      <div class="field" style="flex:0 0 auto">
-        <label>&nbsp;</label>
-        <button type="submit" class="btn-primary" id="submitBtn">▶ شروع اسکن</button>
-      </div>
-    </form>
-  </div>
+      <div class="sub" id="uPerInvoke">سقف هر اجرا: CPU ۱۰ms • درخواست خروجی ۵۰ • Cron ۱ از ۵</div>
+    </div>
 
-  <!-- list / batch scan -->
-  <div class="card">
-    <h2>اسکن لیستی — هر خط یک موضوع ← یک لینک گزارش</h2>
-    <form id="batchForm">
-      <div class="field">
-        <label for="batchTitle">عنوان لیست (اختیاری)</label>
-        <input type="text" id="batchTitle" placeholder="مثلاً: قیمت مقاطع فولادی" maxlength="120" autocomplete="off">
+    <!-- 9 Engines + 6 Directories -->
+    <div class="card" style="margin-bottom:16px;">
+      <div class="section-title">
+        <span>وضعیت ۹ موتور جستجو و ۶ دایرکتوری کانال</span>
+        <span class="sub">چرخش خودکار در صورت محدودیت یا خطا</span>
       </div>
-      <div class="field" style="margin-top:8px">
-        <label for="batchTopics">موضوعات — هر خط یک موضوع (حداکثر ۵۰)</label>
-        <textarea id="batchTopics" rows="6" placeholder="قیمت تیرآهن&#10;قیمت میلگرد&#10;قیمت ورق گالوانیزه&#10;قیمت پروفیل" style="resize:vertical" required></textarea>
-      </div>
-      <div class="row" style="margin-top:8px">
-        <div class="field">
-          <label for="batchRefreshHours">بازه اسکن خودکار (ساعت)</label>
-          <input type="number" id="batchRefreshHours" value="24" min="1" max="720">
-        </div>
-        <div class="field">
-          <label>&nbsp;</label>
-          <div class="check">
-            <input type="checkbox" id="batchAutoRefresh" checked>
-            <label for="batchAutoRefresh" style="margin:0">اسکن خودکار (cron)</label>
-          </div>
-        </div>
-        <div class="field" style="flex:0 0 auto">
-          <label>&nbsp;</label>
-          <button type="submit" class="btn-primary" id="batchSubmitBtn">▶ شروع لیست</button>
+      <div class="engines-grid" id="enginesGrid"></div>
+    </div>
+
+    <!-- Sources Lists -->
+    <div class="card">
+      <div class="section-title">
+        <span>منابع تاییدشده هوش جستجوگر ۲</span>
+        <div class="row">
+          <input type="text" id="filterInput" placeholder="جستجو در نام، آدرس، شهر یا محصول..." oninput="renderSources()" style="width:240px;" />
         </div>
       </div>
-    </form>
-  </div>
-
-  <!-- batches -->
-  <div class="card">
-    <h2>لیست‌ها <span style="color:var(--muted);font-weight:400;font-size:.8rem">(یک لینک برای کل لیست)</span></h2>
-    <div class="scans" id="batchesList"><div class="empty">در حال بارگذاری…</div></div>
-  </div>
-
-  <!-- scans -->
-  <div class="card">
-    <h2>فهرست اسکن‌ها <span id="autoTag" style="color:var(--muted);font-weight:400;font-size:.8rem">(به‌روزرسانی خودکار)</span></h2>
-    <div class="scans" id="scansList"><div class="empty">در حال بارگذاری…</div></div>
-  </div>
-
-  <!-- db settings -->
-  <div class="card">
-    <h2>تنظیمات دیتابیس و موتور</h2>
-    <div class="db-grid">
-      <div><div class="k">D1 Database</div><div class="v" id="dbName">—</div></div>
-      <div><div class="k">فرمت خروجی</div><div class="v">ironpin-quotes-v1</div></div>
-      <div><div class="k">موتورهای جستجو</div><div class="v" id="enginesCfg">—</div></div>
-      <div><div class="k">Cron</div><div class="v" id="cronsCfg">—</div></div>
-      <div><div class="k">نگهداری قیمت</div><div class="v" id="retentionCfg">—</div></div>
-      <div><div class="k">جستجوگر ۲</div><div class="v" id="finderCfg">—</div></div>
-    </div>
-    <div class="row" style="margin-top:14px;align-items:flex-end">
-      <div class="field">
-        <label for="retentionDays">چرخه پاک‌سازی قیمت (روز) — پیش‌فرض ۳۱</label>
-        <input type="number" id="retentionDays" value="31" min="1" max="3650">
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="0" onclick="setTab('0')">وب‌سایت‌ها (<span id="tCount0">۰</span>)</button>
+        <button class="tab-btn" data-tab="1" onclick="setTab('1')">شبکه‌های اجتماعی (<span id="tCount1">۰</span>)</button>
+        <button class="tab-btn" data-tab="2" onclick="setTab('2')">شبکه‌های داخلی (<span id="tCount2">۰</span>)</button>
+        <button class="tab-btn" data-tab="custom" onclick="setTab('custom')">یافته‌های محصولات سفارشی (<span id="tCountC">۰</span>)</button>
       </div>
-      <div class="field" style="flex:0 0 auto">
-        <label>&nbsp;</label>
-        <button type="button" class="btn-primary" id="saveRetention">ذخیره چرخه</button>
+      <div class="scroll-x">
+        <table>
+          <thead>
+            <tr>
+              <th>نام / عنوان</th>
+              <th>نشانی منبع</th>
+              <th>نوع و خوانش</th>
+              <th>شهر</th>
+              <th>محصول / سرنخ</th>
+              <th>زمان تایید</th>
+            </tr>
+          </thead>
+          <tbody id="sourcesBody"></tbody>
+        </table>
       </div>
     </div>
-
-    <!-- CF / D1 usage -->
-    <div class="row" style="margin-top:16px;align-items:flex-end">
-      <div class="field" style="flex:1">
-        <label>مصرف روزانه Cloudflare / D1</label>
-        <div id="usageBox" class="sub" style="margin:0">در حال دریافت…</div>
-      </div>
-      <div class="field" style="flex:0 0 auto">
-        <label>&nbsp;</label>
-        <button type="button" class="btn-ghost" id="refreshUsage" style="padding:8px 14px;border:1px solid var(--border);border-radius:8px">🔄 به‌روز مصرف</button>
-      </div>
-    </div>
-
-    <!-- MANUAL price delete only -->
-    <div class="row" style="margin-top:16px;align-items:flex-end;border-top:1px solid var(--border);padding-top:14px">
-      <div class="field">
-        <label for="priceDeleteDays">حذف دستی قیمت‌های قدیمی (روز) — فقط ردیف قیمت</label>
-        <input type="number" id="priceDeleteDays" value="31" min="1" max="3650">
-      </div>
-      <div class="field" style="flex:0 0 auto">
-        <label>&nbsp;</label>
-        <button type="button" class="btn-danger" id="deletePrices">🗑 حذف فقط قیمت‌ها</button>
-      </div>
-    </div>
-    <div class="sub" style="margin-top:8px">حذف خودکار غیرفعال است — فقط با این دکمه اجرا می‌شود.</div>
   </div>
 
-  <footer>
-    ذخیره‌سازی: Cloudflare D1 · اجرا: Cron Triggers · فرمت: ironpin-quotes-v1 — آینه اسکنر داخلی آیرون پین
-  </footer>
-</div>
+  <div class="toast" id="toast"></div>
 
-<div id="toast"></div>
+  <script>
+    const faNum = (n) => Number(n || 0).toLocaleString('fa-IR');
+    const faDate = (ts) => {
+      if (!ts) return '—';
+      try {
+        return new Intl.DateTimeFormat('fa-IR', {
+          dateStyle: 'short',
+          timeStyle: 'short',
+        }).format(new Date(ts));
+      } catch {
+        return new Date(ts).toISOString();
+      }
+    };
+    const esc = (s) =>
+      String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
 
-<script>
-const $ = (id) => document.getElementById(id);
+    const KIND_LABELS = {
+      site: 'وب‌سایت',
+      telegram: 'تلگرام',
+      instagram: 'اینستاگرام',
+      whatsapp: 'واتساپ',
+      eitaa: 'ایتا',
+      bale: 'بله',
+      rubika: 'روبیکا',
+      soroush: 'سروش',
+      igap: 'آی‌گپ',
+      gap: 'گپ',
+    };
 
-function toast(msg, isErr = false) {
-  const t = $('toast');
-  t.textContent = msg;
-  t.className = isErr ? 'show err' : 'show';
-  setTimeout(() => { t.className = ''; }, 3200);
-}
+    let currentData = null;
+    let activeTab = '0';
 
-async function api(path, opts = {}) {
-  const token = localStorage.getItem('scanner_token') || '';
-  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
-  if (token) headers['Authorization'] = 'Bearer ' + token;
-  const res = await fetch(path, { ...opts, headers });
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 401) {
-    const t = prompt('توکن دسترسی (AUTH_TOKEN):');
-    if (t) {
-      localStorage.setItem('scanner_token', t.trim());
-      return api(path, opts);
+    function showToast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.style.display = 'block';
+      clearTimeout(window.__t);
+      window.__t = setTimeout(() => (el.style.display = 'none'), 3500);
     }
-  }
-  if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
-  return data;
-}
 
-const STATUS_FA = {
-  queued: 'در صف',
-  searching: 'جستجو',
-  fetching: 'دریافت',
-  done: 'کامل',
-  failed: 'ناموفق',
-};
-
-function fmtTime(ms) {
-  if (!ms) return '—';
-  try { return new Date(ms).toLocaleString('fa-IR'); } catch { return String(ms); }
-}
-
-function esc(s) {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function renderScans(scans) {
-  const el = $('scansList');
-  if (!scans.length) {
-    el.innerHTML = '<div class="empty">اسکنی وجود ندارد — موضوعی وارد کنید.</div>';
-    return;
-  }
-  el.innerHTML = scans.map((s) => {
-    const pct = s.pages_total > 0 ? Math.round((s.pages_done / s.pages_total) * 100) : (s.status === 'done' ? 100 : 0);
-    return `
-<div class="scan" data-id="${s.id}">
-  <div class="info">
-    <div class="topic">${esc(s.topic)}</div>
-    <div class="sub">
-      <span class="badge ${s.status}">${STATUS_FA[s.status] || s.status}</span>
-      <span>📄 ${s.pages_done}/${s.pages_total}</span>
-      <span>💰 ${s.knowledge_count}</span>
-      <span>🔄 ${fmtTime(s.updated_at)}</span>
-      ${s.auto_refresh ? `<span>⏰ هر ${s.refresh_hours}س</span>` : ''}
-      ${s.error ? `<span style="color:var(--red)">${esc(s.error)}</span>` : ''}
-    </div>
-    <div class="progress"><i style="width:${pct}%"></i></div>
-  </div>
-  <div class="actions">
-    <a class="btn-ghost" href="/report/${s.id}" target="_blank">📎 لینک گزارش</a>
-    <a class="btn-ghost" href="/api/report/${s.id}" target="_blank">{ } JSON</a>
-    <button class="btn-ghost" data-act="refresh">↻ بروزرسانی</button>
-    <button class="btn-danger" data-act="delete">✕ حذف</button>
-  </div>
-</div>`;
-  }).join('');
-}
-
-async function loadStats() {
-  try {
-    const [stats, health] = await Promise.all([
-      api('/api/stats'),
-      api('/api/health'),
-    ]);
-    $('stScans').textContent = stats.scans ?? 0;
-    $('stActive').textContent = stats.active ?? 0;
-    $('stPages').textContent = stats.pages ?? 0;
-    $('stKnowledge').textContent = stats.knowledge ?? 0;
-    if ($('stBatches')) $('stBatches').textContent = stats.batches ?? 0;
-    if ($('stSources')) $('stSources').textContent = stats.sources ?? 0;
-    $('dbName').textContent = stats.db || 'D1';
-    $('enginesCfg').textContent = (stats.engines || []).join('، ') || '—';
-    $('cronsCfg').textContent = (stats.crons || []).join(' · ');
-    if ($('retentionCfg') && stats.price_retention) {
-      const cyc = stats.settings?.retention_cycle_days ?? stats.price_retention?.older_than_days ?? 31;
-      $('retentionCfg').textContent =
-        `حذف دستی · چرخه ${cyc} روز`;
+    function copyEndpoint() {
+      const link = location.origin + '/api/sources';
+      navigator.clipboard?.writeText(link).then(
+        () => showToast('لینک API کپی شد: ' + link),
+        () => showToast(link)
+      );
     }
-    if ($('retentionDays') && stats.settings) {
-      const cyc = stats.settings.retention_cycle_days ?? 31;
-      if (document.activeElement !== $('retentionDays')) $('retentionDays').value = cyc;
+
+    function setTab(t) {
+      activeTab = t;
+      document.querySelectorAll('.tab-btn').forEach((b) => {
+        b.classList.toggle('active', b.dataset.tab === t);
+      });
+      renderSources();
     }
-    if ($('finderCfg') && stats.sources != null) {
-      $('finderCfg').textContent = `منابع کشف‌شده: ${stats.sources}`;
+
+    async function loadStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        if (!data.ok) return;
+        currentData = data;
+        renderAll();
+      } catch (e) {
+        showToast('خطا در دریافت وضعیت سرور');
+      }
     }
-    $('healthDot').className = health.ok ? 'dot' : 'dot down';
-    $('healthTxt').textContent = health.ok ? 'D1 متصل' : 'D1 قطع';
-  } catch (e) {
-    $('healthDot').className = 'dot down';
-    $('healthTxt').textContent = 'خطا: ' + e.message;
-  }
-}
 
-async function loadScans() {
-  try {
-    const data = await api('/api/scans');
-    renderScans(data.scans || []);
-  } catch (e) {
-    $('scansList').innerHTML = `<div class="empty">خطا: ${esc(e.message)}</div>`;
-  }
-}
+    function renderAll() {
+      const d = currentData;
+      if (!d) return;
+      const c = d.counts || {};
+      const st = d.state || {};
+      const cfg = d.config || {};
 
-const BATCH_STATUS_FA = {
-  queued: 'در صف',
-  searching: 'جستجو',
-  fetching: 'دریافت',
-  done: 'کامل',
-  failed: 'ناموفق',
-};
+      document.getElementById('kTotal').textContent = faNum(c.ok_total);
+      document.getElementById('kReadable').textContent =
+        faNum(c.ok_readable) + ' منبع قابل خواندن توسط IronPin';
+      document.getElementById('kSites').textContent = faNum(c.ok_sites);
+      document.getElementById('kSocial').textContent = faNum(c.ok_social);
+      document.getElementById('kDomestic').textContent = faNum(c.ok_domestic);
 
-function renderBatches(batches) {
-  const el = $('batchesList');
-  if (!batches.length) {
-    el.innerHTML = '<div class="empty">لیستی وجود ندارد — موضوعات را خط‌به‌خط وارد کنید.</div>';
-    return;
-  }
-  el.innerHTML = batches.map((b) => {
-    const total = b.scans_total || 0;
-    const done = b.scans_done || 0;
-    const active = b.scans_active || 0;
-    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-    const status = active > 0 ? (done === total ? 'done' : 'fetching') : (done === total ? 'done' : (b.scans_total === 0 ? 'queued' : 'failed'));
-    return `
-<div class="scan" data-id="${esc(b.id)}">
-  <div class="info">
-    <div class="topic">📋 ${esc(b.title || 'لیست بدون عنوان')}</div>
-    <div class="sub">
-      <span class="badge ${status}">${BATCH_STATUS_FA[status] || status}</span>
-      <span>📝 ${done}/${total} موضوع</span>
-      <span>💰 ${b.knowledge_count || 0} قیمت</span>
-      <span>🔄 ${fmtTime(b.updated_at)}</span>
-    </div>
-    <div class="progress"><i style="width:${pct}%"></i></div>
-  </div>
-  <div class="actions">
-    <a class="btn-ghost" href="/report/batch/${esc(b.id)}" target="_blank">📎 لینک یکپارچه</a>
-    <button class="btn-danger" data-act="del-batch">✕ حذف</button>
-  </div>
-</div>`;
-  }).join('');
-}
+      document.getElementById('tCount0').textContent = faNum(c.ok_sites);
+      document.getElementById('tCount1').textContent = faNum(c.ok_social);
+      document.getElementById('tCount2').textContent = faNum(c.ok_domestic);
+      const customSourcesCount = (d.sources || []).filter((s) => s.matched_product).length;
+      document.getElementById('tCountC').textContent = faNum(customSourcesCount);
 
-async function loadBatches() {
-  try {
-    const data = await api('/api/batches');
-    renderBatches(data.batches || []);
-  } catch (e) {
-    $('batchesList').innerHTML = `<div class="empty">خطا: ${esc(e.message)}</div>`;
-  }
-}
+      const cb = document.getElementById('cycleBadge');
+      if (st.active) {
+        cb.className = 'badge b-teal';
+        cb.textContent = st.phase === 'verify' ? 'در حال بررسی صفحات' : 'در حال جستجوی منابع';
+      } else {
+        cb.className = 'badge b-green';
+        cb.textContent = 'آماده‌باش (تکمیل‌شده)';
+      }
 
-async function refreshAll() {
-  await Promise.all([loadStats(), loadScans(), loadBatches()]);
-}
+      document.getElementById('cycleInfo').innerHTML =
+        `دور فعلی: <b>${faNum((st.round || 0) + 1)}</b> • چرخه: <b>#${faNum(st.cycle_id || 0)}</b>` +
+        ` • آخرین تیک: <b>${faDate(st.last_tick_at)}</b>` +
+        ` • اسکن خودکار بعدی: <b>${faDate(st.next_scan_at)}</b>` +
+        `<br/>آخرین گزارش: <span style="color:var(--text)">${esc(st.last_tick_summary || '—')}</span>`;
 
-// actions (event delegation)
-$('scansList').addEventListener('click', async (ev) => {
-  const btn = ev.target.closest('button[data-act]');
-  if (!btn) return;
-  const row = btn.closest('.scan');
-  const id = row?.dataset?.id;
-  if (!id) return;
-  btn.disabled = true;
-  try {
-    if (btn.dataset.act === 'delete') {
-      if (!confirm('این اسکن و ردیفهایش حذف شود؟')) return;
-      await api('/api/scans/' + id, { method: 'DELETE' });
-      toast('حذف شد');
-    } else if (btn.dataset.act === 'refresh') {
-      await api('/api/scans/' + id + '/refresh', { method: 'POST' });
-      toast('بروزرسانی شروع شد…');
+      document.getElementById('refreshHours').value = cfg.refresh_hours || 24;
+      document.getElementById('autoEnabled').checked = cfg.auto_enabled !== false;
+      document.getElementById('queueStats').textContent =
+        `صف جستجو: ${faNum(c.pending_tasks)} • صف بررسی: ${faNum(c.pending_verify)} • دسترس‌ناپذیر: ${faNum(c.unreachable)} • ردشده: ${faNum(c.rejected)}`;
+
+      renderProducts();
+      renderUsage();
+      renderEngines();
+      renderSources();
     }
-    await refreshAll();
-  } catch (e) {
-    toast(e.message, true);
-  } finally {
-    btn.disabled = false;
-  }
-});
 
-$('batchesList').addEventListener('click', async (ev) => {
-  const btn = ev.target.closest('button[data-act]');
-  if (!btn) return;
-  const row = btn.closest('.scan');
-  const id = row?.dataset?.id;
-  if (!id) return;
-  if (btn.dataset.act !== 'del-batch') return;
-  if (!confirm('این لیست، همه اسکن‌ها و ردیفهایش حذف شود؟')) return;
-  btn.disabled = true;
-  try {
-    await api('/api/batches/' + id, { method: 'DELETE' });
-    toast('لیست حذف شد');
-    await refreshAll();
-  } catch (e) {
-    toast(e.message, true);
-  } finally {
-    btn.disabled = false;
-  }
-});
+    function renderProducts() {
+      const list = currentData.products || [];
+      document.getElementById('prodCount').textContent = faNum(list.length) + ' محصول';
+      const el = document.getElementById('prodList');
+      if (!list.length) {
+        el.innerHTML = '<div class="sub">هنوز محصول سفارشی اضافه نشده است.</div>';
+        return;
+      }
+      el.innerHTML = list
+        .map((p) => {
+          const badge =
+            p.status === 'done'
+              ? '<span class="badge b-green">کامل شد</span>'
+              : '<span class="badge b-teal">در حال جستجو</span>';
+          return `<div class="prod-chip">
+            <div>
+              <b>${esc(p.name)}</b> ${badge}
+              <div class="sub">پرس‌وجو: ${faNum(p.queries_done)} / ${faNum(p.queries_total)} • منابع یافته‌شده: ${faNum(p.discovered_count)}</div>
+            </div>
+            <button class="danger" style="padding:4px 9px;" onclick="delProduct(${p.id})">حذف</button>
+          </div>`;
+        })
+        .join('');
+    }
 
-$('batchForm').addEventListener('submit', async (ev) => {
-  ev.preventDefault();
-  const topics = $('batchTopics').value.trim();
-  if (!topics) { toast('حداقل یک موضوع وارد کنید', true); return; }
-  const btn = $('batchSubmitBtn');
-  btn.disabled = true;
-  try {
-    const data = await api('/api/batches', {
-      method: 'POST',
-      body: JSON.stringify({
-        title: $('batchTitle').value.trim() || null,
-        topics,
-        auto_refresh: $('batchAutoRefresh').checked,
-        refresh_hours: parseInt($('batchRefreshHours').value, 10) || 24,
-      }),
-    });
-    const n = data.batch?.topics_count || data.scan_ids?.length || 0;
-    toast(`لیست ${n} موضوعی ساخته شد — لینک: ${data.report_url}`);
-    $('batchTopics').value = '';
-    $('batchTitle').value = '';
-    if (data.report_url) window.open(data.report_url, '_blank');
-    await refreshAll();
-  } catch (e) {
-    toast(e.message, true);
-  } finally {
-    btn.disabled = false;
-  }
-});
+    function renderUsage() {
+      const u = currentData.usage || {};
+      const lim = u.limits || {};
+      document.getElementById('usageDate').textContent = u.date ? `تاریخ UTC: ${u.date}` : '';
 
-$('scanForm').addEventListener('submit', async (ev) => {
-  ev.preventDefault();
-  const topic = $('topic').value.trim();
-  if (topic.length < 2) { toast('موضوع کوتاه است', true); return; }
-  const btn = $('submitBtn');
-  btn.disabled = true;
-  try {
-    const data = await api('/api/scans', {
-      method: 'POST',
-      body: JSON.stringify({
-        topic,
-        auto_refresh: $('autoRefresh').checked,
-        refresh_hours: parseInt($('refreshHours').value, 10) || 24,
-      }),
-    });
-    toast('اسکن ساخته شد — لینک: ' + (data.report_url || ('/report/' + data.id)));
-    $('topic').value = '';
-    await refreshAll();
-  } catch (e) {
-    toast(e.message, true);
-  } finally {
-    btn.disabled = false;
-  }
-});
+      const setBar = (txtId, barId, val, max, unit) => {
+        if (val == null) {
+          document.getElementById(txtId).textContent = `نامشخص / ${faNum(max)} ${unit}`;
+          document.getElementById(barId).style.width = '0%';
+          return;
+        }
+        const pct = Math.min(100, Math.max(0, (val / max) * 100));
+        document.getElementById(txtId).textContent = `${faNum(val)} / ${faNum(max)} ${unit} (${pct.toFixed(1)}%)`;
+        document.getElementById(barId).style.width = pct + '%';
+      };
 
-// usage load
-async function loadUsage() {
-  try {
-    const data = await api('/api/usage');
-    const u = data.usage || data;
-    const cap = u.cap_mb ?? 500;
-    const mb = u.d1_mb ?? 0;
-    const pct = u.cap_percent ?? ((mb / cap) * 100).toFixed(1);
-    const rr = u.rows_read != null ? u.rows_read.toLocaleString('fa-IR') : '—';
-    const rw = u.rows_written != null ? u.rows_written.toLocaleString('fa-IR') : '—';
-    const req = u.requests != null ? u.requests.toLocaleString('fa-IR') : '—';
-    $('usageBox').innerHTML =
-      `حجم D1: <b>${mb}</b> از <b>${cap}</b> مگابایت (${pct}%)` +
-      ` · ردیف خوانده‌شده امروز: <b>${rr}</b>` +
-      ` · ردیف نوشته‌شده: <b>${rw}</b>` +
-      ` · درخواست Worker: <b>${req}</b>` +
-      (u.date ? ` · ${u.date}` : '');
-  } catch (e) {
-    $('usageBox').textContent = 'خطا: ' + e.message;
-  }
-}
+      const d1Mb = Number(u.d1_mb || 0);
+      const capMb = lim.d1_storage_mb || 500;
+      document.getElementById('uStorage').textContent =
+        `${d1Mb.toLocaleString('fa-IR')} / ${faNum(capMb)} مگابایت (${u.cap_percent || 0}%)${u.estimated_only ? ' ~تخمین' : ''}`;
+      document.getElementById('bStorage').style.width = Math.min(100, (d1Mb / capMb) * 100) + '%';
 
-$('refreshUsage').addEventListener('click', async () => {
-  try {
-    await api('/api/usage/refresh', { method: 'POST' });
-    await loadUsage();
-    toast('مصرف به‌روز شد');
-  } catch (e) { toast(e.message, true); }
-});
+      setBar('uReads', 'bReads', u.rows_read, lim.d1_rows_read_daily || 5000000, 'ردیف');
+      setBar('uWrites', 'bWrites', u.rows_written, lim.d1_rows_written_daily || 100000, 'ردیف');
+      setBar('uReqs', 'bReqs', u.requests, lim.workers_requests_daily || 100000, 'درخواست');
 
-// MANUAL price delete — price rows only
-$('deletePrices').addEventListener('click', async () => {
-  const days = parseInt($('priceDeleteDays').value, 10);
-  if (!Number.isFinite(days) || days < 1 || days > 3650) {
-    toast('مقدار ۱ تا ۳۶۵۰ روز', true);
-    return;
-  }
-  if (!confirm(`فقط قیمت‌های قدیمی‌تر از ${days} روز حذف شود؟`)) return;
-  try {
-    const data = await api('/api/prices/delete?older_than_days=' + days, {
-      method: 'POST',
-      body: JSON.stringify({ admin_token: localStorage.getItem('scanner_token') || '' }),
-    });
-    toast(`${data.deleted} ردیف قیمت حذف شد (فقط قیمت)`);
-    await refreshAll();
-    await loadUsage();
-  } catch (e) { toast(e.message, true); }
-});
+      document.getElementById('uPerInvoke').textContent =
+        `سقف هر اجرا در پلن رایگان: CPU ≤ ${faNum(lim.workers_cpu_ms_per_invocation || 10)}ms • ` +
+        `درخواست خروجی ≤ ${faNum(lim.workers_subrequests_per_invocation || 50)} • ` +
+        `Cron فعال: ۱ از ${faNum(lim.workers_cron_triggers || 5)}`;
+    }
 
-// retention cycle save
-$('saveRetention').addEventListener('click', async () => {
-  const days = parseInt($('retentionDays').value, 10);
-  if (!Number.isFinite(days) || days < 1 || days > 3650) {
-    toast('مقدار ۱ تا ۳۶۵۰ روز', true);
-    return;
-  }
-  try {
-    const data = await api('/api/settings', {
-      method: 'POST',
-      body: JSON.stringify({ retention_cycle_days: days }),
-    });
-    toast(`چرخه پاک‌سازی روی ${data.retention_cycle_days} روز تنظیم شد`);
-    await loadStats();
-  } catch (e) {
-    toast(e.message, true);
-  }
-});
+    function renderEngines() {
+      const list = currentData.engines || [];
+      const el = document.getElementById('enginesGrid');
+      el.innerHTML = list
+        .map((e) => {
+          const cool = e.cooldown_remaining_sec > 0;
+          const badge = cool
+            ? `<span class="badge b-amber">استراحت ${faNum(Math.ceil(e.cooldown_remaining_sec / 60))}د</span>`
+            : `<span class="badge b-green">${e.group === 'directory' ? 'دایرکتوری' : 'آماده'}</span>`;
+          return `<div class="eng-item">
+            <div class="eng-top">
+              <span>${esc(e.title)} <span class="sub">(${esc(e.id)})</span></span>
+              ${badge}
+            </div>
+            <div class="sub">${esc(e.note || 'آماده')}</div>
+            <div class="sub">موفق: ${faNum(e.ok_count)} • خطا: ${faNum(e.fail_count)} • آخرین نتیجه: ${faNum(e.last_hits)}</div>
+          </div>`;
+        })
+        .join('');
+    }
 
-// poll every 4s while any scan active, else 12s
-let pollMs = 15000;
-async function tick() {
-  await refreshAll();
-  const active = $('stActive')?.textContent;
-  pollMs = (active && active !== '0' && active !== '—') ? 15000 : 45000;
-  setTimeout(tick, pollMs);
-}
+    function renderSources() {
+      const all = (currentData && currentData.sources) || [];
+      const q = (document.getElementById('filterInput').value || '').trim().toLowerCase();
+      const rows = all.filter((s) => {
+        if (activeTab === 'custom') {
+          if (!s.matched_product) return false;
+        } else if (String(s.part) !== activeTab) {
+          return false;
+        }
+        if (!q) return true;
+        const hay = `${s.name} ${s.title} ${s.url} ${s.city} ${s.matched_product} ${s.kind}`.toLowerCase();
+        return hay.includes(q);
+      });
 
-refreshAll();
-loadUsage();
-setTimeout(tick, 15000);
-</script>
+      const body = document.getElementById('sourcesBody');
+      if (!rows.length) {
+        body.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--muted); padding:24px;">منبعی در این بخش ثبت نشده است. «اسکن فوری الان» را بزنید یا منتظر چرخه خودکار بمانید.</td></tr>`;
+        return;
+      }
+
+      body.innerHTML = rows
+        .slice(0, 250)
+        .map((s) => {
+          const kindName = KIND_LABELS[s.kind] || s.kind;
+          const readBadge = s.readable
+            ? '<span class="badge b-teal">خوانش در IronPin</span>'
+            : '<span class="badge b-muted">بدون پیش‌نمایش عمومی</span>';
+          const tableBadge = s.has_table ? ' <span class="badge b-green">جدول قیمت</span>' : '';
+          const prodBadge = s.matched_product
+            ? `<span class="badge b-blue">${esc(s.matched_product)}</span> `
+            : '';
+          return `<tr>
+            <td>
+              <b>${esc(s.name || s.host || s.handle)}</b>
+              ${s.title && s.title !== s.name ? `<div class="sub">${esc(s.title)}</div>` : ''}
+            </td>
+            <td><a class="src-link" href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)}</a></td>
+            <td><span class="badge b-muted">${esc(kindName)}</span> ${readBadge}${tableBadge}</td>
+            <td>${esc(s.city || 'نامشخص')}</td>
+            <td>${prodBadge}<span class="sub">${esc(s.provider || '')}</span></td>
+            <td class="sub">${faDate(s.verified_at)}</td>
+          </tr>`;
+        })
+        .join('');
+    }
+
+    async function triggerScan() {
+      const btn = document.getElementById('btnScan');
+      btn.disabled = true;
+      btn.textContent = 'در حال اسکن...';
+      try {
+        const res = await fetch('/api/scan/trigger', { method: 'POST' });
+        const d = await res.json();
+        showToast(
+          `اسکن انجام شد • جستجو: ${faNum(d.tick?.searches)} • تایید: ${faNum(d.tick?.confirmed)}`
+        );
+        await loadStatus();
+      } catch {
+        showToast('خطا در اجرای اسکن فوری');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'اسکن فوری الان';
+      }
+    }
+
+    async function saveConfig() {
+      const refresh_hours = Number(document.getElementById('refreshHours').value) || 24;
+      const auto_enabled = document.getElementById('autoEnabled').checked;
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_hours, auto_enabled }),
+      });
+      const d = await res.json();
+      if (d.ok) {
+        showToast('تنظیمات دوره زمانی ذخیره شد.');
+        await loadStatus();
+      }
+    }
+
+    async function addProduct(ev) {
+      ev.preventDefault();
+      const input = document.getElementById('prodInput');
+      const name = input.value.trim();
+      if (!name) return;
+      const btn = document.getElementById('btnAddProd');
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, immediate: true }),
+        });
+        const d = await res.json();
+        if (!d.ok) {
+          showToast(d.error || 'خطا در افزودن محصول');
+        } else {
+          input.value = '';
+          showToast(`محصول «${name}» ثبت و جستجو آغاز شد.`);
+          await loadStatus();
+        }
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function delProduct(id) {
+      await fetch('/api/products?id=' + encodeURIComponent(id), { method: 'DELETE' });
+      showToast('محصول حذف شد.');
+      await loadStatus();
+    }
+
+    async function refreshUsage() {
+      await fetch('/api/usage/refresh', { method: 'POST' });
+      showToast('آمار Cloudflare به‌روزرسانی شد.');
+      await loadStatus();
+    }
+
+    async function resetDb() {
+      if (!confirm('تمام منابع کشف‌شده و صف اسکن پاک شود؟')) return;
+      await fetch('/api/reset', { method: 'POST' });
+      showToast('پایگاه‌داده با موفقیت بازنشانی شد.');
+      await loadStatus();
+    }
+
+    loadStatus();
+    setInterval(() => {
+      if (currentData?.state?.active) loadStatus();
+    }, 20000);
+  </script>
 </body>
 </html>
