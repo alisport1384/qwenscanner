@@ -176,55 +176,71 @@ function taxOf(text) {
   return without === included ? 'نامشخص' : without ? 'بدون ارزش افزوده' : 'با ارزش افزوده';
 }
 
-/** Jalali → Gregorian (rough, calendar-valid output only), mirroring IronPin. */
+/** Jalali → Gregorian via the Persian calendar in ICU (exact, verified). */
+const PERSIAN_FMT = (() => {
+  try {
+    return new Intl.DateTimeFormat('en-US-u-ca-persian', {
+      year: 'numeric', month: 'numeric', day: 'numeric', timeZone: 'UTC',
+    });
+  } catch {
+    return null;
+  }
+})();
+const persianParts = (d) => {
+  const out = {};
+  for (const p of PERSIAN_FMT.formatToParts(d)) {
+    if (p.type === 'year' || p.type === 'month' || p.type === 'day') {
+      const n = parseInt(p.value, 10);
+      out[p.type] = Number.isFinite(n) ? n : null;
+    }
+  }
+  return out;
+};
 function jalaliToGregorian(jy, jm, jd, hh, mm) {
-  jm = jm - 1;
-  jd = jd - 1;
-  let jdn = 365 * jy + Math.floor(jy / 33) * 8 + Math.floor(((jy % 33) + 3) / 4);
-  for (let i = 0; i < jm; i++) jdn += i < 6 ? 31 : 30;
-  jdn += jd + 79;
-  let gy = 1600 + 400 * Math.floor(jdn / 146097);
-  jdn %= 146097;
-  let leap = true;
-  if (jdn >= 36525) {
-    jdn--;
-    gy += 100 * Math.floor(jdn / 36524);
-    jdn %= 36524;
-    if (jdn >= 365) jdn++;
-    else leap = false;
+  if (!PERSIAN_FMT) return null;
+  if (jm < 1 || jm > 12 || jd < 1 || jd > 31 || jy < 1300 || jy > 1500) return null;
+  const daysBefore = jm <= 7 ? (jm - 1) * 31 : 186 + (jm - 7) * 30;
+  const approx = Date.UTC(jy + 621, 2, 20) + (daysBefore + jd - 1) * 86400000;
+  for (let delta = -3; delta <= 3; delta++) {
+    const d = new Date(approx + delta * 86400000);
+    const p = persianParts(d);
+    if (p.year === jy && p.month === jm && p.day === jd) {
+      const out = new Date(
+        Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hh || 0, mm || 0) -
+          210 * 60000
+      );
+      return Number.isNaN(+out) ? null : out.toISOString();
+    }
   }
-  gy += 4 * Math.floor(jdn / 1461);
-  jdn %= 1461;
-  if (jdn >= 366) {
-    leap = false;
-    jdn--;
-    gy += Math.floor(jdn / 365);
-    jdn %= 365;
-  }
-  const md = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  let mo = 0;
-  while (mo < 11 && jdn >= md[mo]) jdn -= md[mo++];
-  const d = new Date(Date.UTC(gy, mo, jdn + 1, hh || 0, mm || 0) - 210 * 60000);
-  return Number.isNaN(+d) ? null : d.toISOString();
+  return null;
 }
+
+const JALALI_MONTHS = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'];
 
 export function dateIn(text) {
   const s = latin(text);
   // Gregorian ISO date (20xx-mm-dd)
   const iso = /(20\d{2})-(\d{2})-(\d{2})/.exec(s);
   if (iso) {
-    const d = new Date(Date.UTC(+iso[1], +iso[2] - 1, +iso[3]));
+    const y = +iso[1], mo = +iso[2], dy = +iso[3];
+    const chk = new Date(Date.UTC(y, mo - 1, dy));
+    if (chk.getUTCFullYear() !== y || chk.getUTCMonth() !== mo - 1 || chk.getUTCDate() !== dy) return null;
+    const t = /(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(s);
+    const d = new Date(Date.UTC(y, mo - 1, dy, t ? +t[1] : 0, t ? +t[2] : 0) - 210 * 60000);
     return Number.isNaN(+d) ? null : d.toISOString();
   }
-  // Jalali numeric: 13xx/14xx/yyyy/mm/dd (+ optional time)
-  const num = /(1[34]\d{2})[/.\-](\d{1,2})[/.\-](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/.exec(s);
+  // Jalali numeric: 13xx/14xx/yyyy/mm/dd (+ optional time anywhere in the line)
+  const num = /(1[34]\d{2})[/.\-](\d{1,2})[/.\-](\d{1,2})/.exec(s);
   if (num) {
-    return jalaliToGregorian(+num[1], +num[2], +num[3], +(num[4] || 0), +(num[5] || 0));
+    const t = /(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(s);
+    if (t && (+t[1] > 23 || +t[2] > 59)) return null;
+    return jalaliToGregorian(+num[1], +num[2], +num[3], +(t ? t[1] : 0), +(t ? t[2] : 0));
   }
   // Jalali named: <day> <month> <year>
-  const named = /(\d{1,2})\s+(?:فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند)\s+(?:ماه\s+)?(1[34]\d{2})/.exec(s);
+  const named = /(\d{1,2})\s+(فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند)\s+(?:ماه\s+)?(1[34]\d{2})/.exec(s);
   if (named) {
-    return jalaliToGregorian(+named[3], +named[1], 0, 0, 0);
+    const month = JALALI_MONTHS.indexOf(named[2]) + 1;
+    return jalaliToGregorian(+named[3], month, +named[1], 0, 0);
   }
   return null;
 }

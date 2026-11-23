@@ -14,19 +14,22 @@
  */
 
 import { analyzeText, normalizeText } from './text_engine.js';
+import { phonesIn } from './city.js';
+import { readTables } from './table_reader.js';
 
-const CITIES = ['بوئین زهرا', 'شهرکرد', 'نیشابور', 'اصفهان', 'شیراز', 'مشهد', 'تهران', 'تبریز', 'همدان', 'کاشان', 'اهواز', 'سیرجان', 'کرمان', 'شهرضا', 'ابرکوه', 'قزوین', 'تاکستان', 'بناب', 'میانه', 'رشت', 'ساری', 'یزد', 'ابهر', 'دزفول', 'شاهرود', 'سمنان', 'اردبیل', 'قم', 'اراک'];
-
-/** آدرس‌یابی از شماره تلفن — پیش‌شماره‌های جغرافیایی همراه اول. */
-const PHONE_CITY = { '0910': 'تهران', '0911': 'ساری', '0912': 'تهران', '0913': 'اصفهان', '0914': 'تبریز', '0915': 'مشهد', '0916': 'اهواز', '0917': 'شیراز', '0918': 'همدان', '0919': 'تهران' };
-
+/**
+ * آدرس‌یابی از شماره تلفن ثابت — شماره همراه شهر نمی‌سازد (فقط اپراتور).
+ * Returns { city, prefix, phone } or null when no landline names a place.
+ */
 export function cityFromPhone(text) {
-  const t = normalizeText(String(text || ''));
-  const m = /(?:\+98|0098|0)?(9\d{9})(?!\d)/.exec(t);
-  if (!m) return null;
-  const phone = '0' + m[1];
-  const city = PHONE_CITY[phone.slice(0, 4)];
-  return city ? { city, prefix: phone.slice(0, 4), phone } : null;
+  const phones = phonesIn(String(text || '')).filter((p) => p.city);
+  if (!phones.length) return null;
+  phones.sort((a, b) => {
+    if (a.complete !== b.complete) return a.complete ? -1 : 1;
+    return b.digits.length - a.digits.length;
+  });
+  const best = phones[0];
+  return { city: best.city, prefix: best.areaCode || '', phone: best.digits };
 }
 
 /**
@@ -85,6 +88,57 @@ export function computeConversions(text = '', { unit = 'unknown', size = '', thi
 /** Honest per-unit amount bounds (تومان) measured on the live feed. */
 const FENCES = { kg: [15000, 2000000], piece: [2000, 150000000], sheet: [20000, 150000000], m2: [5000, 50000000], roll: [10000, 100000000], ton: [1000000, 300000000], m: [1000, 20000000] };
 
+/** Range indicators: «بازه/محدوده/رنج» describe a span, never one price. */
+const RANGE_WITNESS_RE = /بازه|محدوده|رنج/;
+
+/** Navigation/menu markers: three or more in one claim = page chrome, not an offer. */
+const MENU_MARKERS = [
+  'تماس با ما', 'درباره ما', 'نقشه سایت', 'حریم خصوصی', 'وبلاگ',
+  'خبرنامه', 'سبد خرید', 'افزودن به علاقه', 'علاقه مندی', 'جستجو در سایت',
+  'ثبت سفارش', 'ورود کاربران', 'فراموشی رمز', 'کلیه حقوق', 'تمامی حقوق',
+];
+/** True when the claim announces a price range, not one comparable amount. */
+export function isRangeWitness(t) {
+  return RANGE_WITNESS_RE.test(String(t || ''));
+}
+/** True when the claim is page chrome (navigation/footer boilerplate). */
+export function isMenuWitness(t) {
+  const s = String(t || '');
+  let n = 0;
+  for (const k of MENU_MARKERS) if (s.includes(k) && ++n >= 3) return true;
+  return false;
+}
+
+/**
+ * Short product-anchored title for the feed. A price-list cell yields a short
+ * clean title; the text engine may hand us a long SEO line — we then anchor on
+ * the first product word and cut everything that is obviously page chrome.
+ */
+const TRAILING_CHROME_RE =
+  /(?:تماس\s*با\s*ما|درباره\s*ما|وبلاگ|نقشه\s*سایت|حریم\s*خصوصی|خبرنامه|سبد\s*خرید|ثبت\s*سفارش|افزودن\s*به\s*علاقه|علاقه\s*مندی|مشاهده|دانلود|کلیه\s*حقوق|تمامی\s*حقوق|ورود|عضویت|ثبت\s*نام|خانه\s*[>›»])/;
+export function trimQuoteTitle(title) {
+  let t = String(title || '').replace(/\s+/g, ' ').trim();
+  const m = /میلگرد|میل\s*استیل|تیر\s*آهن|تیراهن|هاش|ناودانی|نبشی|پروفیل|قوطی|لوله|مانیسمان|اسپیرال|ورق|پلیت|شیت|چهارپهلو|شش\s*پر|مفتول|تسمه|سپری|رابیتس|توری|گابیون|مش\s*جوشی|شمش|بیلت|بلوم|اسلب|قراضه|بولت|انکر\s*بولت|گندله|بریکت|فرو\s*آلیاژ|آهن\s*اسفنجی/i.exec(t);
+  if (m && m.index > 0) t = t.slice(m.index);
+  const chrome = TRAILING_CHROME_RE.exec(t);
+  if (chrome && chrome.index > 12) t = t.slice(0, chrome.index).trim();
+  return t.slice(0, 160).replace(/[,،;؛|·•\-–—\s]+$/, '').trim();
+}
+
+/** Identity used to collapse the same offer within one Iran day. */
+function exportIdentity(q, dayKey) {
+  const norm = (s) => String(s || '')
+    .replace(/[۰-۹]/g, (c) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(c))
+    .replace(/[٠-٩]/g, (c) => '٠١٢٣٤٥٦٧٨٩'.indexOf(c))
+    .replace(/\s+/g, '').toLowerCase();
+  return [q.category || '', norm(q.title), q.size || '', q.thickness || '',
+    q.dimensions || '', q.grade || '', q.unit || '', dayKey].join('|');
+}
+function tehranDay(ts) {
+  const d = new Date(Number(ts) || Date.now());
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+}
+
 /** Two or more of these in one claim = news/portal context, not a price. */
 const JUNK_MARKERS = ['کد خبر', 'کد مطلب', 'لینک کوتاه', 'خبرگزاری', 'تسنیم', 'ایسنا', 'فارس نیوز', 'به گزارش', 'بازی بعدی', 'رانندگی', 'استعلام', 'پرسپولیس', 'سخنگوی', 'مجلس شورا', 'تاریخ انتشار', 'صفحه نخست', 'اسرائیل', 'آمریکا', 'حمله', 'توافق', 'کنگره', 'قطعنامه', 'سازمان ملل', 'انتخابات', 'جنگ'];
 
@@ -104,6 +158,8 @@ export function repairQuote(q) {
   if (t) {
     if (!/میلگرد|میل\s*استیل|تیر\s*آهن|تیرآهن|هاش|ناودانی|نبشی|پروفیل|قوطی|لوله|مانیسمان|اسپیرال|ورق|پلیت|شیت|چهارپهلو|مفتول|تسمه|سپری|رابیتس|توری|گابیون|مش\s*جوشی|شمش|بیلت|بلوم|اسلب|قراضه|بولت|انکر\s*بولت|گندله|بریکت|فرو\s*آلیاژ|آهن\s*اسفنجی/i.test(t)) return null;
     if (junkClaim(t)) return null;
+    if (isRangeWitness(t)) return null;
+    if (isMenuWitness(t)) return null;
     const published = String((d && d['زمان انتشار پیام']) || '');
     const py = Number(published.slice(0, 4));
     if (published && py && py < 2023) return null;
@@ -121,9 +177,10 @@ export function repairQuote(q) {
   }
   const f = FENCES[q.unit];
   if (f && !(q.amount >= f[0] && q.amount <= f[1])) return null;
-  // Title cap: only product + specs + price — never long prose/SEO text.
-  if (typeof q.title === 'string' && q.title.length > 120) {
-    q.title = q.title.slice(0, 120).replace(/[,،;；]$/, '').trim();
+  // Title: product-anchored, specs only — never long prose/SEO text.
+  if (typeof q.title === 'string' && q.title) {
+    q.title = trimQuoteTitle(q.title);
+    if (!q.title) return null;
   }
   return q;
 }
@@ -161,6 +218,54 @@ export function extractQuotesFromPage(text, meta) {
     }
     const fixed = repairQuote(q);
     if (!fixed) continue;
+    if (!fixed.sellerCity || fixed.sellerCity === 'نامشخص') {
+      try { fixed.sellerCity = resolveCity(text).city; } catch { /* keep نامشخص */ }
+    }
+    out.push(fixed);
+  }
+  return out;
+}
+
+/**
+ * Extract Quote rows from the price TABLES of one HTML page — the online
+ * mirror of IronPin's PublicTables reader (heading-owned generic seller
+ * tables + div-grid price grids). Rial amounts are converted to Toman here so
+ * every stored row is comparable. Returns Quote-compatible rows ready to store.
+ */
+export function extractTableQuotes(html, meta) {
+  if (!html) return [];
+  const nowTs = meta.fetchedAt || Date.now();
+  const sellerCity = meta.sellerCity || 'نامشخص';
+  const rows = readTables(html, {
+    endpoint: meta.endpoint || 'qwen-scanner',
+    seller: meta.seller || '',
+    sellerCity,
+    sourceUrl: meta.sourceUrl || '',
+    fetchedAt: nowTs,
+    category: meta.category || 'عمومی',
+    defaultCurrency: meta.defaultCurrency || 'نامشخص',
+  });
+  const out = [];
+  for (const q of rows) {
+    const witness = q.details?.['شاهد ردیف'] || q.title;
+    const conv = computeConversions(witness, { unit: q.unit, size: q.size, thickness: q.thickness, dims: q.dimensions });
+    q.pieceKg = q.pieceKg != null ? q.pieceKg : conv.pieceKg;
+    q.lengthM = q.lengthM != null ? q.lengthM : conv.lengthM;
+    q.areaM2 = q.areaM2 != null ? q.areaM2 : conv.areaM2;
+    q.kgm = q.kgm != null ? q.kgm : conv.kgm;
+    if (conv.basis) q.details['مبنای تبدیل واحد'] = conv.basis;
+    // Rial → Toman, recorded for honesty (mirror of the text path).
+    if (q.currency === 'ریال' && q.amount != null) {
+      q.amount = +(q.amount / 10).toFixed(2);
+      q.currency = 'تومان';
+      q.details['مبنای تبدیل ارز'] = 'ریال÷۱۰ از متن منبع';
+    }
+    const fixed = repairQuote(q);
+    if (!fixed) continue;
+    if (!fixed.sellerCity || fixed.sellerCity === 'نامشخص') {
+      const witness = [q.details?.['شاهد ردیف'] || '', q.title].join(' ');
+      try { fixed.sellerCity = resolveCity(witness).city; } catch { /* keep نامشخص */ }
+    }
     out.push(fixed);
   }
   return out;
@@ -190,6 +295,42 @@ export async function storeQuotes(db, scanId, quotes, now = Date.now()) {
   return list.length;
 }
 
+/** GET /api/ironpin — same-day deduped, freshest window, full snapshot. */
+export async function buildIronpinExport(db, { since = 0, limit = 1000 } = {}) {
+  const sinceN = Number(since) > 0 ? Number(since) : 0;
+  const inc = sinceN > 0;
+  // Full snapshot: take the FRESHEST `limit` rows, not the oldest.
+  const sql = inc
+    ? 'SELECT quote_json, source_last_verified_at FROM ironpin_quotes WHERE source_last_verified_at > ?1 ORDER BY source_last_verified_at, rowid LIMIT ?2'
+    : 'SELECT quote_json, source_last_verified_at FROM ironpin_quotes ORDER BY rowid DESC LIMIT ?1';
+  const rows = inc
+    ? await db.prepare(sql).bind(sinceN, limit).all()
+    : await db.prepare(sql).bind(limit).all();
+  const best = new Map();
+  let cursor = sinceN;
+  for (const r of rows.results || []) {
+    const t = Number(r.source_last_verified_at) || 0;
+    if (t > cursor) cursor = t;
+    let q = null;
+    try { q = repairQuote(JSON.parse(r.quote_json)); } catch { continue; }
+    if (!q) continue;
+    const verifiedAt = Number(q.fetchedAt ? Date.parse(q.fetchedAt) : 0) || t;
+    const key = exportIdentity(q, tehranDay(verifiedAt || t));
+    const prev = best.get(key);
+    if (!prev || (prev._t || 0) < t) best.set(key, { ...q, _t: t });
+  }
+  let quotes = [...best.values()].map(({ _t, ...q }) => q);
+  if (quotes.length > limit && !inc) quotes = quotes.slice(quotes.length - limit);
+  return {
+    format: 'ironpin-quotes-v1',
+    generated_at: new Date().toISOString(),
+    count: quotes.length,
+    cursor,
+    complete: true,
+    quotes,
+  };
+}
+
 /** Compatibility shim: the old knowledge-based backfill is removed; the
  *  pipeline now stores quotes directly via storeQuotes. Returns done. */
 export async function processIronpinBatch(db) {
@@ -203,106 +344,42 @@ export async function processIronpinBatch(db) {
   return { processed: 0, quotes: 0, done: true };
 }
 
-/** Serve pre-serialized Quote rows as a streamed single JSON response.
- *  `since` (ms) = incremental mode for the app's external scanner: only rows
- *  with source_last_verified_at > since (new OR updated), no candidates
- *  payload, and `cursor` = max timestamp served. */
-export async function streamIronpinExport(db, { since = 0 } = {}) {
-  const sinceN = Number(since) > 0 ? Number(since) : 0;
-  const incremental = sinceN > 0;
-  const [qres, state] = await Promise.all([
-    incremental
-      ? db.prepare('SELECT quote_json, source_last_verified_at FROM ironpin_quotes WHERE source_last_verified_at > ?1 ORDER BY source_last_verified_at, rowid').bind(sinceN).all()
-      : db.prepare('SELECT quote_json, source_last_verified_at FROM ironpin_quotes ORDER BY rowid').all(),
-    db.prepare('SELECT value FROM meta WHERE key = ?1').bind(BACKFILL_KEY).first(),
-  ]);
-  const raws = qres.results || [];
-  let ready = false;
-  try { ready = JSON.parse(state?.value || '{}').done === true; } catch { /* ignore */ }
-  let cursor = sinceN;
-  const qs = [];
-  const seen = new Set();
-  for (const r of raws) {
-    const t = Number(r.source_last_verified_at) || 0;
-    if (t > cursor) cursor = t;
-    let q = null;
-    try { q = JSON.parse(r.quote_json); } catch { continue; }
-    const fixed = repairQuote(q);
-    if (!fixed) continue;
-    const key = String(fixed.title || '').slice(0, 80) + '|' + fixed.amount + '|' + fixed.unit;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    qs.push(fixed);
-  }
-  const generated = new Date(Math.max(Date.now(), ...raws.map((x) => Number(x.source_last_verified_at) || 0))).toISOString();
-  const enc = new TextEncoder();
-  let i = 0, first = true, phase = 0;
-  const tail = `],"cursor":${cursor}}`;
-  const head = `{"format":"ironpin-quotes-v1","generated_at":${JSON.stringify(generated)},"count":${qs.length},"complete":${ready},${incremental ? `"since":${sinceN},` : ''}"quotes":[`;
-  const body = new ReadableStream({
-    pull(controller) {
-      if (phase === 0) { controller.enqueue(enc.encode(head)); phase = 1; return; }
-      if (phase === 1) {
-        const end = Math.min(i + 50, qs.length);
-        let chunk = '';
-        for (; i < end; i++) {
-          if (!first) chunk += ',';
-          first = false;
-          chunk += JSON.stringify(qs[i]);
-        }
-        if (chunk) controller.enqueue(enc.encode(chunk));
-        if (i < qs.length) return;
-        controller.enqueue(enc.encode(tail));
-        phase = 2;
-        controller.close();
-        return;
-      }
-      controller.close();
-    },
-  });
-  return new Response(body, {
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': ready && !incremental ? 'public, max-age=900' : 'no-store',
-      'X-Content-Type-Options': 'nosniff',
-    },
-  });
-}
-
 /**
- * Full / incremental IronPin export for the panel API. `since` (ms) returns
- * only rows verified after that cursor; `cursor` echoes the max timestamp so
- * the app can page forward.
+ * One-shot maintenance: delete stored quotes that fail the CURRENT repair
+ * gate (junk/news/range/menu rows that only look valid to an older gate).
+ * Rows are invisible at serve time anyway; this just stops them wasting D1
+ * storage. Idempotent via meta flag `purge_junk_v2_done`.
  */
-export async function buildIronpinExport(db, { since = 0, limit = 1000 } = {}) {
-  const sinceN = Number(since) > 0 ? Number(since) : 0;
-  const inc = sinceN > 0;
-  const sql = inc
-    ? 'SELECT quote_json, source_last_verified_at FROM ironpin_quotes WHERE source_last_verified_at > ?1 ORDER BY source_last_verified_at, rowid LIMIT ?2'
-    : 'SELECT quote_json, source_last_verified_at FROM ironpin_quotes ORDER BY rowid LIMIT ?1';
-  const rows = inc
-    ? await db.prepare(sql).bind(sinceN, limit).all()
-    : await db.prepare(sql).bind(limit).all();
-  const quotes = [];
-  const seen = new Set();
-  let cursor = sinceN;
-  for (const r of rows.results || []) {
-    const t = Number(r.source_last_verified_at) || 0;
-    if (t > cursor) cursor = t;
-    let q = null;
-    try { q = repairQuote(JSON.parse(r.quote_json)); } catch { continue; }
-    if (!q) continue;
-    const key = String(q.title || '').slice(0, 80) + '|' + q.amount + '|' + q.unit;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    quotes.push(q);
+export async function purgeJunkQuotes(db, { flag = 'purge_junk_v2_done', now = Date.now() } = {}) {
+  try {
+    const row = await db.prepare('SELECT value FROM meta WHERE key = ?1').bind(flag).first();
+    if (row?.value && JSON.parse(row.value).done) return { done: true, deleted: 0 };
+  } catch { /* meta table may not exist yet — try anyway */ }
+  let deleted = 0;
+  try {
+    const all = await db.prepare('SELECT scan_id, knowledge_id, quote_json FROM ironpin_quotes').all();
+    const rows = all.results || [];
+    const bad = [];
+    for (const r of rows) {
+      let ok = true;
+      try { ok = repairQuote(JSON.parse(r.quote_json)) != null; } catch { ok = false; }
+      if (!ok) bad.push(r);
+    }
+    for (let i = 0; i < bad.length; i += 50) {
+      const stmt = db.prepare('DELETE FROM ironpin_quotes WHERE scan_id = ?1 AND knowledge_id = ?2');
+      const slice = bad.slice(i, i + 50);
+      await db.batch(slice.map((r) => stmt.bind(r.scan_id, r.knowledge_id)));
+      deleted += slice.length;
+    }
+    try {
+      await db.prepare(
+        `INSERT INTO meta (key, value, updated_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+      ).bind(flag, JSON.stringify({ done: true, deleted, at: now }), now).run();
+    } catch { /* non-fatal */ }
+    return { done: true, deleted };
+  } catch (e) {
+    console.error('purgeJunkQuotes failed', e?.message || e);
+    return { done: false, deleted };
   }
-  return {
-    format: 'ironpin-quotes-v1',
-    generated_at: new Date().toISOString(),
-    count: quotes.length,
-    cursor,
-    complete: true,
-    quotes,
-  };
 }

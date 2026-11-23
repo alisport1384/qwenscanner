@@ -48,8 +48,10 @@ ok('computeConversions: rebar formula + explicit piece weight', () => {
   assert.equal(c2.pieceKg, 12);
 });
 
-ok('cityFromPhone maps prefixes', () => {
-  assert.deepEqual(cityFromPhone('تماس با 09121234567 برای سفارش'), { city: 'تهران', prefix: '0912', phone: '09121234567' });
+ok('cityFromPhone: landlines name a city, mobiles name none', () => {
+  // Honest port of IronPin's phone_city.dart — a mobile number carries no place.
+  assert.equal(cityFromPhone('تماس با 09121234567 برای سفارش'), null);
+  assert.deepEqual(cityFromPhone('تلفن 02188776655'), { city: 'تهران', prefix: '021', phone: '02188776655' });
   assert.equal(cityFromPhone('جهتی نیست'), null);
 });
 

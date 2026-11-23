@@ -9,11 +9,14 @@
 
 import { searchWeb, diverse } from './engines.js';
 import { extractMainText, extractTitle, detectLang, normalizeUrl, domainOf } from './extract.js';
-import { extractQuotesFromPage, storeQuotes } from './ironpin.js';
+import { extractQuotesFromPage, extractTableQuotes, storeQuotes } from './ironpin.js';
 import { extractFromPage } from './image_extract.js';
 
 const MAX_FETCH_MS = 10000;
-const HTML_CAP = 250_000; // chars — CPU safety on Workers free (10ms)
+/** Body cap for parsing. 250k used to cut ahanmelal's page in half (334 priced
+ *  rows → ~170); IronPin's own reader accepts up to 8 MB. Chosen to cover full
+ *  price lists; the fetch cap of 10s and the daily fetch limit bound the cost. */
+const HTML_CAP = 750_000;
 
 function now() {
   return Date.now();
@@ -216,7 +219,19 @@ export async function runFetchPhase(scan, env, opts = {}) {
 
     const lang = detectLang(text);
 
-    // Searcher-1: extract Quote rows from the page text.
+    // Price rows from the page price TABLES (div-grid/tables) — mirror of
+    // IronPin's PublicTables reader; the richest source for price-list pages.
+    const tableQuotes = extractTableQuotes(html, {
+      endpoint: 'qwen-scanner',
+      seller: title || page.domain,
+      sellerCity: 'نامشخص',
+      sourceUrl: page.url,
+      fetchedAt: nowTs,
+      category: scan.topic || 'عمومی',
+      defaultCurrency: 'نامشخص',
+    });
+
+    // Text-line rows (claim-style lines) — the online line reader.
     const quotes = extractQuotesFromPage(text, {
       endpoint: 'qwen-scanner',
       seller: title || page.domain,
@@ -245,7 +260,7 @@ export async function runFetchPhase(scan, env, opts = {}) {
       }
     }
 
-    const allQuotes = [...quotes, ...imgQuotes];
+    const allQuotes = [...tableQuotes, ...quotes, ...imgQuotes];
     if (allQuotes.length === 0) {
       await pageDoneStmt.bind('skipped', httpStatus, 'no_quotes', text.length, nowTs, title, page.id).run();
       deltaDone++;

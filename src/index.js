@@ -7,7 +7,7 @@ import { ensureSchema } from './schema.js';
 import { runFinderRound } from './finder.js';
 import { ensureIronPinSeed } from './seed.js';
 import { getRowsReadFresh } from './usage.js';
-import { processIronpinBatch } from './ironpin.js';
+import { processIronpinBatch, purgeJunkQuotes } from './ironpin.js';
 import { createGuardian } from './guardian.js';
 
 const HTML_HEADERS = {
@@ -41,6 +41,12 @@ async function cachedGet(request, env, ctx, fn, ttl = 120) {
 
 async function runScheduledWork(env, cron) {
   await ensureSchema(env);
+  // One-shot: drop quotes that fail the current junk gate (idempotent flag).
+  try {
+    await purgeJunkQuotes(env.DB);
+  } catch (e) {
+    console.error('junk purge failed', e);
+  }
   // IronPin seed once (sources + product price batch + harvest pages)
   try {
     await ensureIronPinSeed(env);
