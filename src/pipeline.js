@@ -275,7 +275,10 @@ export async function runFetchPhase(scan, env, opts = {}) {
   const results = new Map(allowed.map((p, i) => [p.id, fetched[i]]));
 
   for (const page of pages) {
-    if (g && g.expired()) break;
+    // NOTE: no guardian wall-clock break here — the fetch already happened;
+    // throwing the result away at this point burns guardian fetch budget AND
+    // page attempts with nothing stored (observed as done_jina stuck at 0).
+    // Extraction is bounded CPU (≤ a few hundred ms per page); finish the batch.
     const fetchedFor = results.get(page.id);
     if (!fetchedFor) continue; // beyond budget — handled by the unprocessed reset
     const { html, status: httpStatus, error: fetchErr, via } = fetchedFor;
