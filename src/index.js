@@ -86,7 +86,7 @@ async function runScheduledWork(env, cron) {
     // Drain queue in batch (was: single runTick — left items stuck in صف)
     if (!guardian.expired()) {
       try {
-        await drainQueue(env, { maxSteps: 30, guardian });
+        await drainQueue(env, { maxSteps: 3, guardian }); // subrequest budget: ≪ free-plan cap
       } catch (e) {
         console.error('drain failed', e);
         await runTick(env, { guardian });

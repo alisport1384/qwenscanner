@@ -77,9 +77,16 @@ const isUseful = (r) => !!(r && !r.error && r.html && r.html.length >= 1000);
  * Cloudflare/foreign datacenter IPs nothing are common in Iran; this makes
  * the external scanner behave like the internal one for those sources.
  */
-async function fetchPageText(url) {
+/** Per-invocation cap on Jina subrequests — the shared anonymous tier is 429/IP
+ *  and each Worker invocation also has a subrequest limit (50 free). Direct
+ *  fetches stay unlimited; only the fallback is rationed within an invocation. */
+const JINA_PER_INVOCATION = 4;
+
+async function fetchPageText(url, env, budget) {
   const direct = await rawFetch(url, MAX_FETCH_MS);
   if (isUseful(direct)) return { ...direct, via: 'direct' };
+  if (budget && budget.jinaLeft <= 0) return { ...direct, via: 'jina-skipped' };
+  if (budget) budget.jinaLeft -= 1;
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), JINA_BUDGET_MS);
@@ -91,6 +98,7 @@ async function fetchPageText(url) {
         'User-Agent': UA,
         'x-return-format': 'html',
         'Accept-Language': 'fa,en;q=0.8',
+        ...(env?.JINA_API_KEY ? { Authorization: `Bearer ${env.JINA_API_KEY}` } : {}),
       },
     });
     clearTimeout(t);
@@ -98,10 +106,13 @@ async function fetchPageText(url) {
     let html = await res.text();
     if (html.length > HTML_CAP) html = html.slice(0, HTML_CAP);
     if (!res.ok || (ct && !/html|text|xml|json/.test(ct)) || html.length < 1000) {
+      console.error('jina fallback reject', JSON.stringify({ url, ok: res.ok, status: res.status, ct, len: html.length, head: html.slice(0, 160) }));
       return { ...direct, via: 'direct-failed' };
     }
+    console.log('jina fallback ok', JSON.stringify({ url, status: res.status, len: html.length }));
     return { html, status: res.status, via: 'jina-reader' };
-  } catch {
+  } catch (e) {
+    console.error('jina fallback error', JSON.stringify({ url, err: String(e?.message || e) }));
     return { ...direct, via: 'direct-failed' };
   }
 }
@@ -247,6 +258,10 @@ export async function runFetchPhase(scan, env, opts = {}) {
     return true;
   }
 
+  // Per-invocation Jina budget (anonymous tier is shared-IP 429-prone;
+  // Worker free plan caps subrequests/invocation). Created fresh each call.
+  const jinaBudget = { jinaLeft: JINA_PER_INVOCATION };
+
   const pageDoneStmt = env.DB.prepare(
     `UPDATE pages SET status = ?1, http_status = ?2, error = ?3, chars = ?4,
        fetched_at = ?5, title = COALESCE(NULLIF(?6, ''), title)
@@ -270,7 +285,7 @@ export async function runFetchPhase(scan, env, opts = {}) {
   // was the reason scans took so long. Extraction stays sequential/CPU-bound.
   const fetched = await Promise.all(allowed.map((p) => {
     processed.add(p.id);
-    return fetchPageText(p.url).catch((e) => ({ html: null, status: 0, error: String(e?.message || e || 'fetch_failed') }));
+    return fetchPageText(p.url, env, jinaBudget).catch((e) => ({ html: null, status: 0, error: String(e?.message || e || 'fetch_failed') }));
   }));
   const results = new Map(allowed.map((p, i) => [p.id, fetched[i]]));
 

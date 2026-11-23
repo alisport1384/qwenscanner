@@ -339,3 +339,15 @@ D1: batches → scans → pages → ironpin_quotes
 - **موتورها**: bing → bing-rss → ddg → gerdoo → zarebin
 - **لیست**: N اسکن → یک `batches` → یک لینک `/report/batch/:id` و یک JSON یکپارچه
 - **نگهبان**: `guardian.js` — حد CPU/fetch/AI/حجم برای مصرف حداقلی
+
+
+## کلید پروکسی خوانش (JINA_API_KEY) — لازم برای صفحات WAF ایران
+
+از v1.9، واکشی مستقیم اول است؛ فقط اگر شکست بخورد یک‌بار از `https://r.jina.ai/<url>` استفاده می‌شود. از Cloudflare، IP اشتراکی anonymous معمولاً **429 «Per IP rate limit»** می‌دهد؛ کلید رایگان (ساخته‌شده در jina.ai، بدون کارت) ۵۰۰ RPM می‌دهد و مشکل را حل می‌کند:
+
+```sh
+npx wrangler secret put JINA_API_KEY   # مقدار: کلید از https://jina.ai (بخش API Key)
+```
+
+بدون کلید هم دپلوی کار می‌کند ولی صفحات WAF (iromart و امثالش) فقط گاهی (تصادفی) موفق می‌شوند.
+علامت شفافیت: ردیف‌های ذخیره‌شده از این مسیر دارای `مسیر دریافت: پروکسی خوانش` هستند.
