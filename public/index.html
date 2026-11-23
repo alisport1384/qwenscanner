@@ -56,6 +56,7 @@
       display: flex;
       align-items: center;
       gap: 8px;
+      flex-wrap: wrap;
     }
     .sub { color: var(--muted); font-size: 12px; }
     .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -75,14 +76,17 @@
       transition: border-color .15s, background .15s;
     }
     button:hover, .btn:hover { border-color: var(--teal); }
-    button.primary {
+    button.primary, .btn.primary {
       background: #0f766e;
       border-color: #14b8a6;
       color: #fff;
       font-weight: bold;
     }
-    button.primary:hover { background: #0d9488; }
+    button.primary:hover, .btn.primary:hover { background: #0d9488; }
     button.danger { border-color: rgba(248, 113, 113, 0.45); color: var(--red); }
+    button.danger:hover { border-color: var(--red); background: var(--red-dim); }
+    button.warn { border-color: rgba(245, 158, 11, 0.45); color: var(--amber); }
+    button.warn:hover { border-color: var(--amber); background: var(--amber-dim); }
     button:disabled { opacity: 0.55; cursor: not-allowed; }
     input[type="text"], input[type="number"] {
       font-family: inherit;
@@ -107,12 +111,24 @@
       gap: 14px;
       margin-bottom: 16px;
     }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+      gap: 12px;
+    }
     .card {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 14px 16px;
     }
+    .kpi-card {
+      text-decoration: none;
+      color: inherit;
+      display: block;
+      transition: border-color .15s, transform .15s;
+    }
+    .kpi-card:hover { border-color: var(--teal); transform: translateY(-1px); }
     .kpi-label { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
     .kpi-val { font-size: 24px; font-weight: bold; color: #fff; }
     .kpi-sub { font-size: 11px; color: var(--teal); margin-top: 2px; }
@@ -141,14 +157,28 @@
     .b-blue { background: var(--blue-dim); color: var(--blue); border-color: rgba(96,165,250,.28); }
     .b-muted { background: rgba(142,167,175,.1); color: var(--muted); border-color: var(--border); }
     .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    .bar-wrap { margin-bottom: 10px; }
-    .bar-head { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px; }
+    .limit-box {
+      background: var(--card2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .limit-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      font-size: 12px;
+      font-weight: bold;
+    }
     .bar-track {
       height: 7px;
       background: #0c1518;
       border-radius: 999px;
       overflow: hidden;
       border: 1px solid #1c2e35;
+      margin: 6px 0;
     }
     .bar-fill {
       height: 100%;
@@ -156,6 +186,18 @@
       border-radius: 999px;
       transition: width .3s;
     }
+    .bar-fill.warn { background: linear-gradient(90deg, #d97706, #fbbf24); }
+    .bar-fill.blocked { background: linear-gradient(90deg, #dc2626, #f87171); }
+    .guard-banner {
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      font-size: 12px;
+      border: 1px solid var(--border);
+    }
+    .guard-banner.ok { background: var(--green-dim); border-color: rgba(74,222,128,.3); color: var(--green); }
+    .guard-banner.warning { background: var(--amber-dim); border-color: rgba(245,158,11,.35); color: var(--amber); }
+    .guard-banner.blocked { background: var(--red-dim); border-color: rgba(248,113,113,.4); color: var(--red); }
     .engines-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -176,54 +218,6 @@
       font-weight: bold;
       color: #fff;
     }
-    .tabs {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-bottom: 12px;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 10px;
-    }
-    .tab-btn {
-      background: transparent;
-      border: 1px solid var(--border);
-      padding: 6px 12px;
-      border-radius: 8px;
-      color: var(--muted);
-    }
-    .tab-btn.active {
-      background: var(--teal-dim);
-      border-color: var(--teal);
-      color: var(--teal);
-      font-weight: bold;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 12px;
-    }
-    th, td {
-      text-align: right;
-      padding: 8px 10px;
-      border-bottom: 1px solid #1c2e35;
-      vertical-align: top;
-    }
-    th {
-      color: var(--muted);
-      font-weight: normal;
-      font-size: 11px;
-      background: #0f191d;
-    }
-    tr:hover td { background: rgba(255,255,255,0.02); }
-    a.src-link {
-      color: var(--teal);
-      text-decoration: none;
-      word-break: break-all;
-      direction: ltr;
-      display: inline-block;
-      text-align: left;
-    }
-    a.src-link:hover { text-decoration: underline; }
     .prod-chip {
       background: var(--card2);
       border: 1px solid var(--border);
@@ -235,6 +229,18 @@
       gap: 10px;
       margin-top: 8px;
       font-size: 12px;
+    }
+    .sources-links-card {
+      background: linear-gradient(135deg, #112026 0%, #162930 100%);
+      border: 1px solid #264852;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      align-items: center;
+      justify-content: space-between;
     }
     .toast {
       position: fixed;
@@ -249,8 +255,6 @@
       z-index: 99;
       font-size: 12px;
     }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; direction: ltr; display: inline-block; }
-    .scroll-x { overflow-x: auto; }
   </style>
 </head>
 <body>
@@ -266,38 +270,74 @@
         </div>
       </div>
       <div class="actions">
-        <a class="btn" href="/api/sources" target="_blank">خروجی JSON منابع (/api/sources)</a>
+        <a class="btn primary" href="/sources">مشاهده لیست منابع</a>
+        <a class="btn" href="/api/sources" target="_blank">خروجی JSON (/api/sources)</a>
         <button onclick="copyEndpoint()">کپی لینک API</button>
         <button class="primary" id="btnScan" onclick="triggerScan()">اسکن فوری الان</button>
         <button onclick="loadStatus()">به‌روزرسانی</button>
       </div>
     </header>
 
-    <!-- KPI Row -->
+    <!-- KPI Row (clicking opens dedicated sources page) -->
     <div class="grid-4">
-      <div class="card">
-        <div class="kpi-label">کل منابع تاییدشده</div>
+      <a class="card kpi-card" href="/sources">
+        <div class="kpi-label">کل منابع تاییدشده (برای مشاهده کلیک کنید)</div>
         <div class="kpi-val" id="kTotal">۰</div>
         <div class="kpi-sub" id="kReadable">۰ منبع قابل خواندن توسط IronPin</div>
-      </div>
-      <div class="card">
+      </a>
+      <a class="card kpi-card" href="/sources?part=0">
         <div class="kpi-label">وب‌سایت‌های فروش و پخش</div>
         <div class="kpi-val" id="kSites">۰</div>
-        <div class="kpi-sub">لیست ۱ • جداول و صفحات قیمت</div>
-      </div>
-      <div class="card">
+        <div class="kpi-sub">لیست ۱ • مشاهده جداول و صفحات قیمت ↗</div>
+      </a>
+      <a class="card kpi-card" href="/sources?part=1">
         <div class="kpi-label">شبکه‌های اجتماعی</div>
         <div class="kpi-val" id="kSocial">۰</div>
-        <div class="kpi-sub">لیست ۲ • تلگرام، اینستاگرام، واتساپ</div>
-      </div>
-      <div class="card">
+        <div class="kpi-sub">لیست ۲ • تلگرام، اینستاگرام، واتساپ ↗</div>
+      </a>
+      <a class="card kpi-card" href="/sources?part=2">
         <div class="kpi-label">شبکه‌های داخلی ایران</div>
         <div class="kpi-val" id="kDomestic">۰</div>
-        <div class="kpi-sub">لیست ۳ • ایتا، بله، روبیکا، سروش، آی‌گپ</div>
+        <div class="kpi-sub">لیست ۳ • ایتا، بله، روبیکا، سروش، آی‌گپ ↗</div>
+      </a>
+    </div>
+
+    <!-- Dedicated Sources Page Link Banner (keeps home page super fast) -->
+    <div class="sources-links-card">
+      <div>
+        <div style="font-size:14px; font-weight:bold; color:#fff; margin-bottom:3px;">
+          نمایش و جستجوی فهرست کامل منابع در صفحه اختصاصی
+        </div>
+        <div class="sub">
+          برای سبک ماندن و بارگذاری سریع پنل اصلی، جدول کامل منابع به صفحه مجزا منتقل شده است.
+        </div>
+      </div>
+      <div class="actions">
+        <a class="btn primary" href="/sources">باز کردن صفحه منابع (<span id="linkTotal">۰</span>)</a>
+        <a class="btn" href="/sources?part=0">وب‌سایت‌ها (<span id="linkSites">۰</span>)</a>
+        <a class="btn" href="/sources?part=1">اجتماعی (<span id="linkSocial">۰</span>)</a>
+        <a class="btn" href="/sources?part=2">داخلی (<span id="linkDomestic">۰</span>)</a>
+        <a class="btn" href="/sources?tab=custom">محصولات سفارشی (<span id="linkCustom">۰</span>)</a>
       </div>
     </div>
 
-    <!-- Cycle & Custom Products -->
+    <!-- Cloudflare Free Tier Limits & Guards -->
+    <div class="card" style="margin-bottom:16px;">
+      <div class="section-title">
+        <span>وضعیت محدودیت‌ها و نگهبان پلن رایگان Cloudflare (Workers + D1)</span>
+        <div class="row">
+          <span class="badge b-green" id="guardBadge">نگهبان فعال و امن</span>
+          <span class="sub" id="usageDate"></span>
+          <button onclick="refreshUsage()">استعلام لحظه‌ای Cloudflare</button>
+        </div>
+      </div>
+      <div class="guard-banner ok" id="guardBanner">
+        در حال بررسی وضعیت نگهبان حجم دیتابیس و درخواست‌های کلادفلر...
+      </div>
+      <div class="grid-3" id="limitsGrid"></div>
+    </div>
+
+    <!-- Cycle & Retention/Purge & Custom Products -->
     <div class="grid-2">
       <div class="card">
         <div class="section-title">
@@ -316,98 +356,60 @@
         </div>
         <div class="row" style="justify-content:space-between; border-top:1px solid var(--border); padding-top:10px;">
           <div class="sub" id="queueStats">صف جستجو: ۰ • صف بررسی: ۰ • دسترس‌ناپذیر: ۰ • ردشده: ۰</div>
-          <button class="danger" onclick="resetDb()">بازنشانی پایگاه‌داده</button>
+          <button class="danger" onclick="resetDb()">بازنشانی کل پایگاه‌داده</button>
         </div>
       </div>
 
       <div class="card">
         <div class="section-title">
-          <span>افزودن محصول برای کشف منابع جدید</span>
-          <span class="badge b-blue" id="prodCount">۰ محصول</span>
+          <span>پاک‌سازی دستی و بازه نگهداری منابع</span>
+          <span class="badge b-amber" id="retentionBadge">پیش‌فرض ۶ ماه</span>
         </div>
-        <div class="sub" style="margin-bottom:8px;">
-          نام محصول یا برند را وارد کنید تا سرور روی ۹ موتور جستجو و ۶ دایرکتوری به دنبال وب‌سایت و کانال‌های فروش آن بگردد و برای IronPin ذخیره کند.
+        <div class="sub" style="margin-bottom:10px;">
+          می‌توانید بازه نگهداری منابع را تغییر دهید (پیش‌فرض ۶ ماه)، منابع قدیمی‌تر از این بازه را پاک کنید یا تمام منابع کشف‌شده را به‌صورت دستی پاک‌سازی نمایید.
         </div>
-        <form class="row" onsubmit="addProduct(event)">
-          <input type="text" id="prodInput" placeholder="مثلاً: میلگرد زاگرس یا ورق گالوانیزه کاشان" style="flex:1; min-width:200px;" />
-          <button type="submit" class="primary" id="btnAddProd">افزودن و جستجو</button>
-        </form>
-        <div id="prodList" style="margin-top:8px; max-height:190px; overflow-y:auto;"></div>
+        <div class="row" style="margin-bottom:10px;">
+          <label for="retentionMonths">بازه نگهداری (ماه):</label>
+          <input type="number" id="retentionMonths" min="1" max="36" value="6" style="width:72px;" />
+          <label class="row" style="gap:5px; cursor:pointer;">
+            <input type="checkbox" id="autoPruneEnabled" checked />
+            <span>پاک‌سازی خودکار قدیمی‌ترها</span>
+          </label>
+          <button onclick="saveRetention()">ذخیره بازه</button>
+        </div>
+        <div class="sub" id="retentionStats" style="margin-bottom:10px;">
+          کل ردیف‌های منابع: ۰ • قدیمی‌تر از ۶ ماه: ۰
+        </div>
+        <div class="row">
+          <button class="warn" id="btnPurgeOlder" onclick="purgeOlder()">پاک کردن منابع قدیمی‌تر از ۶ ماه</button>
+          <button class="danger" id="btnPurgeAll" onclick="purgeAll()">پاک کردن دستی تمام منابع</button>
+        </div>
       </div>
     </div>
 
-    <!-- Cloudflare Free Tier Usage -->
+    <!-- Custom Products -->
     <div class="card" style="margin-bottom:16px;">
       <div class="section-title">
-        <span>مصرف و سقف‌های پلن رایگان Cloudflare (Workers + D1)</span>
-        <div class="row">
-          <span class="sub" id="usageDate"></span>
-          <button onclick="refreshUsage()">به‌روزرسانی آمار Cloudflare</button>
-        </div>
+        <span>افزودن محصول برای کشف منابع جدید</span>
+        <span class="badge b-blue" id="prodCount">۰ محصول</span>
       </div>
-      <div class="grid-2" style="margin-bottom:0;">
-        <div>
-          <div class="bar-wrap">
-            <div class="bar-head"><span>حجم دیتابیس D1</span><span id="uStorage">-</span></div>
-            <div class="bar-track"><div class="bar-fill" id="bStorage" style="width:0%"></div></div>
-          </div>
-          <div class="bar-wrap">
-            <div class="bar-head"><span>ردیف‌های خوانده‌شده امروز (سقف ۵ میلیون)</span><span id="uReads">-</span></div>
-            <div class="bar-track"><div class="bar-fill" id="bReads" style="width:0%"></div></div>
-          </div>
-        </div>
-        <div>
-          <div class="bar-wrap">
-            <div class="bar-head"><span>ردیف‌های نوشته‌شده امروز (سقف ۱۰۰ هزار)</span><span id="uWrites">-</span></div>
-            <div class="bar-track"><div class="bar-fill" id="bWrites" style="width:0%"></div></div>
-          </div>
-          <div class="bar-wrap">
-            <div class="bar-head"><span>درخواست‌های Worker امروز (سقف ۱۰۰ هزار)</span><span id="uReqs">-</span></div>
-            <div class="bar-track"><div class="bar-fill" id="bReqs" style="width:0%"></div></div>
-          </div>
-        </div>
+      <div class="sub" style="margin-bottom:8px;">
+        نام محصول یا برند را وارد کنید تا سرور روی ۹ موتور جستجو و ۶ دایرکتوری به دنبال وب‌سایت و کانال‌های فروش آن بگردد و برای IronPin ذخیره کند.
       </div>
-      <div class="sub" id="uPerInvoke">سقف هر اجرا: CPU ۱۰ms • درخواست خروجی ۵۰ • Cron ۱ از ۵</div>
+      <form class="row" onsubmit="addProduct(event)">
+        <input type="text" id="prodInput" placeholder="مثلاً: میلگرد زاگرس یا ورق گالوانیزه کاشان" style="flex:1; min-width:220px;" />
+        <button type="submit" class="primary" id="btnAddProd">افزودن و جستجو</button>
+      </form>
+      <div id="prodList" style="margin-top:8px; max-height:200px; overflow-y:auto;"></div>
     </div>
 
     <!-- 9 Engines + 6 Directories -->
-    <div class="card" style="margin-bottom:16px;">
+    <div class="card">
       <div class="section-title">
         <span>وضعیت ۹ موتور جستجو و ۶ دایرکتوری کانال</span>
         <span class="sub">چرخش خودکار در صورت محدودیت یا خطا</span>
       </div>
       <div class="engines-grid" id="enginesGrid"></div>
-    </div>
-
-    <!-- Sources Lists -->
-    <div class="card">
-      <div class="section-title">
-        <span>منابع تاییدشده هوش جستجوگر ۲</span>
-        <div class="row">
-          <input type="text" id="filterInput" placeholder="جستجو در نام، آدرس، شهر یا محصول..." oninput="renderSources()" style="width:240px;" />
-        </div>
-      </div>
-      <div class="tabs">
-        <button class="tab-btn active" data-tab="0" onclick="setTab('0')">وب‌سایت‌ها (<span id="tCount0">۰</span>)</button>
-        <button class="tab-btn" data-tab="1" onclick="setTab('1')">شبکه‌های اجتماعی (<span id="tCount1">۰</span>)</button>
-        <button class="tab-btn" data-tab="2" onclick="setTab('2')">شبکه‌های داخلی (<span id="tCount2">۰</span>)</button>
-        <button class="tab-btn" data-tab="custom" onclick="setTab('custom')">یافته‌های محصولات سفارشی (<span id="tCountC">۰</span>)</button>
-      </div>
-      <div class="scroll-x">
-        <table>
-          <thead>
-            <tr>
-              <th>نام / عنوان</th>
-              <th>نشانی منبع</th>
-              <th>نوع و خوانش</th>
-              <th>شهر</th>
-              <th>محصول / سرنخ</th>
-              <th>زمان تایید</th>
-            </tr>
-          </thead>
-          <tbody id="sourcesBody"></tbody>
-        </table>
-      </div>
     </div>
   </div>
 
@@ -433,21 +435,7 @@
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
 
-    const KIND_LABELS = {
-      site: 'وب‌سایت',
-      telegram: 'تلگرام',
-      instagram: 'اینستاگرام',
-      whatsapp: 'واتساپ',
-      eitaa: 'ایتا',
-      bale: 'بله',
-      rubika: 'روبیکا',
-      soroush: 'سروش',
-      igap: 'آی‌گپ',
-      gap: 'گپ',
-    };
-
     let currentData = null;
-    let activeTab = '0';
 
     function showToast(msg) {
       const el = document.getElementById('toast');
@@ -465,14 +453,6 @@
       );
     }
 
-    function setTab(t) {
-      activeTab = t;
-      document.querySelectorAll('.tab-btn').forEach((b) => {
-        b.classList.toggle('active', b.dataset.tab === t);
-      });
-      renderSources();
-    }
-
     async function loadStatus() {
       try {
         const res = await fetch('/api/status');
@@ -480,7 +460,7 @@
         if (!data.ok) return;
         currentData = data;
         renderAll();
-      } catch (e) {
+      } catch {
         showToast('خطا در دریافت وضعیت سرور');
       }
     }
@@ -499,11 +479,11 @@
       document.getElementById('kSocial').textContent = faNum(c.ok_social);
       document.getElementById('kDomestic').textContent = faNum(c.ok_domestic);
 
-      document.getElementById('tCount0').textContent = faNum(c.ok_sites);
-      document.getElementById('tCount1').textContent = faNum(c.ok_social);
-      document.getElementById('tCount2').textContent = faNum(c.ok_domestic);
-      const customSourcesCount = (d.sources || []).filter((s) => s.matched_product).length;
-      document.getElementById('tCountC').textContent = faNum(customSourcesCount);
+      document.getElementById('linkTotal').textContent = faNum(c.ok_total);
+      document.getElementById('linkSites').textContent = faNum(c.ok_sites);
+      document.getElementById('linkSocial').textContent = faNum(c.ok_social);
+      document.getElementById('linkDomestic').textContent = faNum(c.ok_domestic);
+      document.getElementById('linkCustom').textContent = faNum(c.ok_custom_sources);
 
       const cb = document.getElementById('cycleBadge');
       if (st.active) {
@@ -525,10 +505,81 @@
       document.getElementById('queueStats').textContent =
         `صف جستجو: ${faNum(c.pending_tasks)} • صف بررسی: ${faNum(c.pending_verify)} • دسترس‌ناپذیر: ${faNum(c.unreachable)} • ردشده: ${faNum(c.rejected)}`;
 
+      const retMonths = cfg.retention_months || 6;
+      document.getElementById('retentionMonths').value = retMonths;
+      document.getElementById('autoPruneEnabled').checked = cfg.auto_prune_enabled !== false;
+      document.getElementById('retentionBadge').textContent = `بازه نگهداری: ${faNum(retMonths)} ماه`;
+      document.getElementById('retentionStats').textContent =
+        `کل ردیف‌های جدول منابع: ${faNum(c.total_rows)} • منابع قدیمی‌تر از ${faNum(retMonths)} ماه: ${faNum(c.expired_retention)}`;
+      document.getElementById('btnPurgeOlder').textContent =
+        `پاک کردن منابع قدیمی‌تر از ${faNum(retMonths)} ماه`;
+
       renderProducts();
-      renderUsage();
+      renderLimitsAndGuards();
       renderEngines();
-      renderSources();
+    }
+
+    function renderLimitsAndGuards() {
+      const u = currentData.usage || {};
+      const g = currentData.guards || u.guards || {};
+      const items = g.items || [];
+
+      document.getElementById('usageDate').textContent = u.date
+        ? `تاریخ UTC: ${u.date} • بروزرسانی: ${faDate(u.updated_at)}`
+        : '';
+
+      const badge = document.getElementById('guardBadge');
+      const banner = document.getElementById('guardBanner');
+      if (g.overall === 'blocked') {
+        badge.className = 'badge b-red';
+        badge.textContent = 'توقف خودکار توسط نگهبان';
+        banner.className = 'guard-banner blocked';
+      } else if (g.overall === 'warning') {
+        badge.className = 'badge b-amber';
+        badge.textContent = 'نزدیک به آستانه هشدار';
+        banner.className = 'guard-banner warning';
+      } else {
+        badge.className = 'badge b-green';
+        badge.textContent = 'نگهبان فعال و امن';
+        banner.className = 'guard-banner ok';
+      }
+      banner.textContent = g.reason || 'تمام محدودیت‌های کلادفلر در وضعیت ایمن هستند.';
+
+      const grid = document.getElementById('limitsGrid');
+      const statusBadge = (st) => {
+        if (st === 'blocked') return '<span class="badge b-red">متوقف‌شده</span>';
+        if (st === 'warning') return '<span class="badge b-amber">هشدار</span>';
+        if (st === 'unknown') return '<span class="badge b-muted">نیاز به استعلام</span>';
+        return '<span class="badge b-green">امن</span>';
+      };
+
+      grid.innerHTML = items
+        .map((it) => {
+          const pct = it.pct == null ? 0 : Math.min(100, Math.max(0, Number(it.pct)));
+          const usedStr =
+            it.used == null
+              ? 'نامشخص'
+              : it.id === 'd1_storage'
+                ? Number(it.used).toLocaleString('fa-IR', { maximumFractionDigits: 3 })
+                : faNum(it.used);
+          const guardStr = faNum(it.guard);
+          const limitStr = faNum(it.limit);
+          const fillCls =
+            it.status === 'blocked' ? 'bar-fill blocked' : it.status === 'warning' ? 'bar-fill warn' : 'bar-fill';
+          return `<div class="limit-box">
+            <div class="limit-head">
+              <span>${esc(it.title)}</span>
+              ${statusBadge(it.status)}
+            </div>
+            <div class="sub">
+              مصرف: <b style="color:#fff">${usedStr}</b> / سقف کلادفلر: <b>${limitStr} ${esc(it.unit)}</b>
+              ${it.pct != null ? ` (${it.pct}%)` : ''}
+            </div>
+            <div class="bar-track"><div class="${fillCls}" style="width:${pct}%"></div></div>
+            <div class="sub">آستانه نگهبان: <b>${guardStr} ${esc(it.unit)}</b> • ${esc(it.note)}</div>
+          </div>`;
+        })
+        .join('');
     }
 
     function renderProducts() {
@@ -556,38 +607,6 @@
         .join('');
     }
 
-    function renderUsage() {
-      const u = currentData.usage || {};
-      const lim = u.limits || {};
-      document.getElementById('usageDate').textContent = u.date ? `تاریخ UTC: ${u.date}` : '';
-
-      const setBar = (txtId, barId, val, max, unit) => {
-        if (val == null) {
-          document.getElementById(txtId).textContent = `نامشخص / ${faNum(max)} ${unit}`;
-          document.getElementById(barId).style.width = '0%';
-          return;
-        }
-        const pct = Math.min(100, Math.max(0, (val / max) * 100));
-        document.getElementById(txtId).textContent = `${faNum(val)} / ${faNum(max)} ${unit} (${pct.toFixed(1)}%)`;
-        document.getElementById(barId).style.width = pct + '%';
-      };
-
-      const d1Mb = Number(u.d1_mb || 0);
-      const capMb = lim.d1_storage_mb || 500;
-      document.getElementById('uStorage').textContent =
-        `${d1Mb.toLocaleString('fa-IR')} / ${faNum(capMb)} مگابایت (${u.cap_percent || 0}%)${u.estimated_only ? ' ~تخمین' : ''}`;
-      document.getElementById('bStorage').style.width = Math.min(100, (d1Mb / capMb) * 100) + '%';
-
-      setBar('uReads', 'bReads', u.rows_read, lim.d1_rows_read_daily || 5000000, 'ردیف');
-      setBar('uWrites', 'bWrites', u.rows_written, lim.d1_rows_written_daily || 100000, 'ردیف');
-      setBar('uReqs', 'bReqs', u.requests, lim.workers_requests_daily || 100000, 'درخواست');
-
-      document.getElementById('uPerInvoke').textContent =
-        `سقف هر اجرا در پلن رایگان: CPU ≤ ${faNum(lim.workers_cpu_ms_per_invocation || 10)}ms • ` +
-        `درخواست خروجی ≤ ${faNum(lim.workers_subrequests_per_invocation || 50)} • ` +
-        `Cron فعال: ۱ از ${faNum(lim.workers_cron_triggers || 5)}`;
-    }
-
     function renderEngines() {
       const list = currentData.engines || [];
       const el = document.getElementById('enginesGrid');
@@ -609,52 +628,6 @@
         .join('');
     }
 
-    function renderSources() {
-      const all = (currentData && currentData.sources) || [];
-      const q = (document.getElementById('filterInput').value || '').trim().toLowerCase();
-      const rows = all.filter((s) => {
-        if (activeTab === 'custom') {
-          if (!s.matched_product) return false;
-        } else if (String(s.part) !== activeTab) {
-          return false;
-        }
-        if (!q) return true;
-        const hay = `${s.name} ${s.title} ${s.url} ${s.city} ${s.matched_product} ${s.kind}`.toLowerCase();
-        return hay.includes(q);
-      });
-
-      const body = document.getElementById('sourcesBody');
-      if (!rows.length) {
-        body.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--muted); padding:24px;">منبعی در این بخش ثبت نشده است. «اسکن فوری الان» را بزنید یا منتظر چرخه خودکار بمانید.</td></tr>`;
-        return;
-      }
-
-      body.innerHTML = rows
-        .slice(0, 250)
-        .map((s) => {
-          const kindName = KIND_LABELS[s.kind] || s.kind;
-          const readBadge = s.readable
-            ? '<span class="badge b-teal">خوانش در IronPin</span>'
-            : '<span class="badge b-muted">بدون پیش‌نمایش عمومی</span>';
-          const tableBadge = s.has_table ? ' <span class="badge b-green">جدول قیمت</span>' : '';
-          const prodBadge = s.matched_product
-            ? `<span class="badge b-blue">${esc(s.matched_product)}</span> `
-            : '';
-          return `<tr>
-            <td>
-              <b>${esc(s.name || s.host || s.handle)}</b>
-              ${s.title && s.title !== s.name ? `<div class="sub">${esc(s.title)}</div>` : ''}
-            </td>
-            <td><a class="src-link" href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)}</a></td>
-            <td><span class="badge b-muted">${esc(kindName)}</span> ${readBadge}${tableBadge}</td>
-            <td>${esc(s.city || 'نامشخص')}</td>
-            <td>${prodBadge}<span class="sub">${esc(s.provider || '')}</span></td>
-            <td class="sub">${faDate(s.verified_at)}</td>
-          </tr>`;
-        })
-        .join('');
-    }
-
     async function triggerScan() {
       const btn = document.getElementById('btnScan');
       btn.disabled = true;
@@ -662,9 +635,13 @@
       try {
         const res = await fetch('/api/scan/trigger', { method: 'POST' });
         const d = await res.json();
-        showToast(
-          `اسکن انجام شد • جستجو: ${faNum(d.tick?.searches)} • تایید: ${faNum(d.tick?.confirmed)}`
-        );
+        if (d.tick?.guard_blocked) {
+          showToast(d.tick.reason || 'اسکن توسط نگهبان کلادفلر متوقف شد.');
+        } else {
+          showToast(
+            `اسکن انجام شد • جستجو: ${faNum(d.tick?.searches)} • تایید: ${faNum(d.tick?.confirmed)}`
+          );
+        }
         await loadStatus();
       } catch {
         showToast('خطا در اجرای اسکن فوری');
@@ -685,6 +662,50 @@
       const d = await res.json();
       if (d.ok) {
         showToast('تنظیمات دوره زمانی ذخیره شد.');
+        await loadStatus();
+      }
+    }
+
+    async function saveRetention() {
+      const retention_months = Number(document.getElementById('retentionMonths').value) || 6;
+      const auto_prune_enabled = document.getElementById('autoPruneEnabled').checked;
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ retention_months, auto_prune_enabled }),
+      });
+      const d = await res.json();
+      if (d.ok) {
+        showToast(`بازه نگهداری روی ${faNum(d.config?.retention_months || retention_months)} ماه ذخیره شد.`);
+        await loadStatus();
+      }
+    }
+
+    async function purgeOlder() {
+      const months = Number(document.getElementById('retentionMonths').value) || 6;
+      if (!confirm(`منابع قدیمی‌تر از ${months} ماه از پایگاه‌داده پاک شوند؟`)) return;
+      const res = await fetch('/api/sources/purge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'older', months }),
+      });
+      const d = await res.json();
+      if (d.ok) {
+        showToast(`${faNum(d.deleted)} منبع قدیمی‌تر از ${faNum(d.retention_months)} ماه پاک شد.`);
+        await loadStatus();
+      }
+    }
+
+    async function purgeAll() {
+      if (!confirm('هشدار: تمام منابع کشف‌شده به صورت دستی پاک می‌شوند. ادامه می‌دهید؟')) return;
+      const res = await fetch('/api/sources/purge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'all' }),
+      });
+      const d = await res.json();
+      if (d.ok) {
+        showToast(`تمام منابع (${faNum(d.deleted)} مورد) به صورت دستی پاک شدند.`);
         await loadStatus();
       }
     }
@@ -723,12 +744,12 @@
 
     async function refreshUsage() {
       await fetch('/api/usage/refresh', { method: 'POST' });
-      showToast('آمار Cloudflare به‌روزرسانی شد.');
+      showToast('آمار Cloudflare و وضعیت نگهبان‌ها به‌روزرسانی شد.');
       await loadStatus();
     }
 
     async function resetDb() {
-      if (!confirm('تمام منابع کشف‌شده و صف اسکن پاک شود؟')) return;
+      if (!confirm('کل پایگاه‌داده (همه منابع، صف جستجو و محصولات سفارشی) بازنشانی شود؟')) return;
       await fetch('/api/reset', { method: 'POST' });
       showToast('پایگاه‌داده با موفقیت بازنشانی شد.');
       await loadStatus();

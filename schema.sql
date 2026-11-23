@@ -60,6 +60,9 @@ CREATE INDEX IF NOT EXISTS idx_sources_host
 CREATE INDEX IF NOT EXISTS idx_sources_product
   ON sources(matched_product);
 
+CREATE INDEX IF NOT EXISTS idx_sources_updated
+  ON sources(updated_at);
+
 CREATE TABLE IF NOT EXISTS search_tasks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   kind TEXT NOT NULL,

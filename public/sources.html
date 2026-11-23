@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>آیرون‌پین • فهرست منابع کشف‌شده</title>
+  <style>
+    :root {
+      --bg: #0b1316;
+      --card: #121e23;
+      --card2: #16252b;
+      --border: #233840;
+      --text: #e6f1f3;
+      --muted: #8ea7af;
+      --teal: #2dd4bf;
+      --teal-dim: rgba(45, 212, 191, 0.14);
+      --green: #4ade80;
+      --green-dim: rgba(74, 222, 128, 0.14);
+      --blue: #60a5fa;
+      --blue-dim: rgba(96, 165, 250, 0.14);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Tahoma, "Vazirmatn", "Segoe UI", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.65;
+    }
+    .wrap { max-width: 1240px; margin: 0 auto; padding: 18px 16px 48px; }
+    header {
+      background: linear-gradient(135deg, #102027 0%, #152b33 100%);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 20px;
+      margin-bottom: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    h1 { margin: 0 0 4px; font-size: 18px; color: #fff; }
+    .sub { color: var(--muted); font-size: 12px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    button, .btn {
+      font-family: inherit;
+      font-size: 12px;
+      padding: 8px 14px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: var(--card2);
+      color: var(--text);
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    button:hover, .btn:hover { border-color: var(--teal); }
+    .btn.primary, button.primary {
+      background: #0f766e;
+      border-color: #14b8a6;
+      color: #fff;
+      font-weight: bold;
+    }
+    input[type="text"] {
+      font-family: inherit;
+      font-size: 12px;
+      padding: 8px 11px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: #0c161a;
+      color: var(--text);
+      outline: none;
+    }
+    input:focus { border-color: var(--teal); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .section-title {
+      font-size: 14px;
+      font-weight: bold;
+      margin: 0 0 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 8px;
+      color: var(--muted);
+    }
+    .tab-btn.active {
+      background: var(--teal-dim);
+      border-color: var(--teal);
+      color: var(--teal);
+      font-weight: bold;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .b-teal { background: var(--teal-dim); color: var(--teal); border-color: rgba(45,212,191,.28); }
+    .b-green { background: var(--green-dim); color: var(--green); border-color: rgba(74,222,128,.28); }
+    .b-blue { background: var(--blue-dim); color: var(--blue); border-color: rgba(96,165,250,.28); }
+    .b-muted { background: rgba(142,167,175,.1); color: var(--muted); border-color: var(--border); }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td {
+      text-align: right;
+      padding: 8px 10px;
+      border-bottom: 1px solid #1c2e35;
+      vertical-align: top;
+    }
+    th { color: var(--muted); font-weight: normal; font-size: 11px; background: #0f191d; }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+    a.src-link {
+      color: var(--teal);
+      text-decoration: none;
+      word-break: break-all;
+      direction: ltr;
+      display: inline-block;
+      text-align: left;
+    }
+    a.src-link:hover { text-decoration: underline; }
+    .scroll-x { overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>فهرست منابع تاییدشده هوش جستجوگر ۲</h1>
+        <div class="sub" id="summaryLine">در حال بارگذاری منابع...</div>
+      </div>
+      <div class="actions">
+        <a class="btn primary" href="/">بازگشت به پنل اصلی</a>
+        <a class="btn" href="/api/sources" target="_blank">خروجی JSON (/api/sources)</a>
+        <button onclick="loadSources()">به‌روزرسانی</button>
+      </div>
+    </header>
+
+    <div class="card">
+      <div class="section-title">
+        <span>جستجو و فیلتر منابع</span>
+        <div class="actions">
+          <label class="actions sub" style="cursor:pointer;">
+            <input type="checkbox" id="onlyReadable" onchange="resetLimitAndRender()" />
+            <span>فقط قابل خواندن در IronPin</span>
+          </label>
+          <input type="text" id="filterInput" placeholder="جستجو در نام، آدرس، شهر یا محصول..." oninput="resetLimitAndRender()" style="width:260px;" />
+        </div>
+      </div>
+
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="all" onclick="setTab('all')">همه (<span id="tAll">۰</span>)</button>
+        <button class="tab-btn" data-tab="0" onclick="setTab('0')">وب‌سایت‌ها (<span id="t0">۰</span>)</button>
+        <button class="tab-btn" data-tab="1" onclick="setTab('1')">شبکه‌های اجتماعی (<span id="t1">۰</span>)</button>
+        <button class="tab-btn" data-tab="2" onclick="setTab('2')">شبکه‌های داخلی (<span id="t2">۰</span>)</button>
+        <button class="tab-btn" data-tab="custom" onclick="setTab('custom')">یافته‌های محصولات سفارشی (<span id="tC">۰</span>)</button>
+      </div>
+
+      <div class="scroll-x">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>نام / عنوان</th>
+              <th>نشانی منبع</th>
+              <th>نوع و خوانش</th>
+              <th>شهر</th>
+              <th>محصول / سرنخ</th>
+              <th>زمان تایید</th>
+            </tr>
+          </thead>
+          <tbody id="sourcesBody">
+            <tr><td colspan="7" style="text-align:center; color:var(--muted); padding:28px;">در حال دریافت اطلاعات...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div id="moreWrap" style="text-align:center; margin-top:12px; display:none;">
+        <button onclick="showMore()">نمایش ۱۰۰ مورد بعدی</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const faNum = (n) => Number(n || 0).toLocaleString('fa-IR');
+    const faDate = (ts) => {
+      if (!ts) return '—';
+      try {
+        return new Intl.DateTimeFormat('fa-IR', {
+          dateStyle: 'short',
+          timeStyle: 'short',
+        }).format(new Date(ts));
+      } catch {
+        return String(ts);
+      }
+    };
+    const esc = (s) =>
+      String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+
+    const KIND_LABELS = {
+      site: 'وب‌سایت',
+      telegram: 'تلگرام',
+      instagram: 'اینستاگرام',
+      whatsapp: 'واتساپ',
+      eitaa: 'ایتا',
+      bale: 'بله',
+      rubika: 'روبیکا',
+      soroush: 'سروش',
+      igap: 'آی‌گپ',
+      gap: 'گپ',
+    };
+
+    const params = new URLSearchParams(location.search);
+    let activeTab =
+      params.get('tab') === 'custom'
+        ? 'custom'
+        : ['0', '1', '2'].includes(params.get('part'))
+          ? params.get('part')
+          : 'all';
+    let allSources = [];
+    let renderLimit = 100;
+
+    function syncTabButtons() {
+      document.querySelectorAll('.tab-btn').forEach((b) => {
+        b.classList.toggle('active', b.dataset.tab === activeTab);
+      });
+    }
+
+    function setTab(t) {
+      activeTab = t;
+      renderLimit = 100;
+      syncTabButtons();
+      render();
+    }
+
+    function resetLimitAndRender() {
+      renderLimit = 100;
+      render();
+    }
+
+    function showMore() {
+      renderLimit += 100;
+      render();
+    }
+
+    async function loadSources() {
+      try {
+        const res = await fetch('/api/sources');
+        const d = await res.json();
+        allSources = d.sources || [];
+        const c = d.counts || {};
+        document.getElementById('tAll').textContent = faNum(allSources.length);
+        document.getElementById('t0').textContent = faNum(c.sites ?? allSources.filter((s) => s.part === 0).length);
+        document.getElementById('t1').textContent = faNum(c.social ?? allSources.filter((s) => s.part === 1).length);
+        document.getElementById('t2').textContent = faNum(c.domestic ?? allSources.filter((s) => s.part === 2).length);
+        document.getElementById('tC').textContent = faNum(c.custom ?? allSources.filter((s) => s.matched_product).length);
+        document.getElementById('summaryLine').textContent =
+          `کل منابع تاییدشده: ${faNum(allSources.length)} • قابل خواندن در IronPin: ${faNum(c.readable)} • دور: ${faNum((d.round || 0) + 1)}`;
+        syncTabButtons();
+        render();
+      } catch {
+        document.getElementById('sourcesBody').innerHTML =
+          '<tr><td colspan="7" style="text-align:center; color:#f87171; padding:24px;">خطا در دریافت لیست منابع</td></tr>';
+      }
+    }
+
+    function render() {
+      const q = (document.getElementById('filterInput').value || '').trim().toLowerCase();
+      const onlyReadable = document.getElementById('onlyReadable').checked;
+
+      const filtered = allSources.filter((s) => {
+        if (onlyReadable && !s.readable) return false;
+        if (activeTab === 'custom') {
+          if (!s.matched_product) return false;
+        } else if (activeTab !== 'all' && String(s.part) !== activeTab) {
+          return false;
+        }
+        if (!q) return true;
+        const hay = `${s.name} ${s.title} ${s.url} ${s.city} ${s.matched_product} ${s.kind}`.toLowerCase();
+        return hay.includes(q);
+      });
+
+      const body = document.getElementById('sourcesBody');
+      if (!filtered.length) {
+        body.innerHTML =
+          '<tr><td colspan="7" style="text-align:center; color:var(--muted); padding:24px;">منبعی با این فیلتر پیدا نشد.</td></tr>';
+        document.getElementById('moreWrap').style.display = 'none';
+        return;
+      }
+
+      const slice = filtered.slice(0, renderLimit);
+      body.innerHTML = slice
+        .map((s, idx) => {
+          const kindName = KIND_LABELS[s.kind] || s.kind;
+          const readBadge = s.readable
+            ? '<span class="badge b-teal">خوانش در IronPin</span>'
+            : '<span class="badge b-muted">بدون پیش‌نمایش عمومی</span>';
+          const tableBadge = s.has_table ? ' <span class="badge b-green">جدول قیمت</span>' : '';
+          const prodBadge = s.matched_product
+            ? `<span class="badge b-blue">${esc(s.matched_product)}</span> `
+            : '';
+          return `<tr>
+            <td class="sub">${faNum(idx + 1)}</td>
+            <td>
+              <b>${esc(s.name || s.host || s.handle)}</b>
+              ${s.title && s.title !== s.name ? `<div class="sub">${esc(s.title)}</div>` : ''}
+            </td>
+            <td><a class="src-link" href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)}</a></td>
+            <td><span class="badge b-muted">${esc(kindName)}</span> ${readBadge}${tableBadge}</td>
+            <td>${esc(s.city || 'نامشخص')}</td>
+            <td>${prodBadge}<span class="sub">${esc(s.provider || '')}</span></td>
+            <td class="sub">${faDate(s.verified_at)}</td>
+          </tr>`;
+        })
+        .join('');
+
+      document.getElementById('moreWrap').style.display =
+        filtered.length > renderLimit ? 'block' : 'none';
+    }
+
+    loadSources();
+  </script>
+</body>
+</html>

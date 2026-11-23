@@ -30,14 +30,15 @@ import {
   saysNoResults,
   timedFetch,
 } from './engines.js';
-import { getRowsReadFresh } from './usage.js';
+import { checkFreeTierGuards, refreshUsage } from './usage.js';
 import { judgePublicPage, parsePublicPage } from './verifier.js';
 
 export const MAX_PER_PART = 500;
 export const MAX_PER_HOST = 12;
 export const MAX_DEPTH = 2;
 const DEFAULT_REFRESH_HOURS = 24;
-const ROW_READ_SOFT_CAP = 4_400_000;
+export const DEFAULT_RETENTION_MONTHS = 6;
+const DAY_MS = 24 * 3600_000;
 
 async function getMetaJson(env, key, fallback) {
   try {
@@ -62,9 +63,12 @@ async function setMetaJson(env, key, obj, now = Date.now()) {
 
 export function defaultConfig(env) {
   const hours = Number(env?.DEFAULT_REFRESH_HOURS) || DEFAULT_REFRESH_HOURS;
+  const retMonths = Number(env?.DEFAULT_RETENTION_MONTHS) || DEFAULT_RETENTION_MONTHS;
   return {
     refresh_hours: Math.min(168, Math.max(1, Math.round(hours))),
     auto_enabled: true,
+    retention_months: Math.min(36, Math.max(1, Math.round(retMonths))),
+    auto_prune_enabled: true,
   };
 }
 
@@ -80,7 +84,16 @@ export async function setConfig(env, patch = {}, now = Date.now()) {
       : cur.refresh_hours;
   const auto_enabled =
     patch.auto_enabled != null ? Boolean(patch.auto_enabled) : cur.auto_enabled;
-  const next = { refresh_hours: hours, auto_enabled };
+  const retention_months =
+    patch.retention_months != null
+      ? Math.min(36, Math.max(1, Math.round(Number(patch.retention_months) || DEFAULT_RETENTION_MONTHS)))
+      : cur.retention_months;
+  const auto_prune_enabled =
+    patch.auto_prune_enabled != null
+      ? Boolean(patch.auto_prune_enabled)
+      : cur.auto_prune_enabled !== false;
+
+  const next = { refresh_hours: hours, auto_enabled, retention_months, auto_prune_enabled };
   await setMetaJson(env, 'scanner_config', next, now);
 
   // Reschedule next_scan_at cleanly relative to last_cycle_started_at or now
@@ -92,6 +105,63 @@ export async function setConfig(env, patch = {}, now = Date.now()) {
   }
   await setMetaJson(env, 'scanner_state', state, now);
   return next;
+}
+
+/**
+ * Purges discovered sources manually or by retention window (default 6 months).
+ * mode = 'all' deletes every row in `sources`.
+ * mode = 'older' deletes sources whose activity timestamp is older than `months * 30` days.
+ */
+export async function purgeSources(
+  env,
+  { mode = 'older', months, now = Date.now() } = {}
+) {
+  const cfg = await getConfig(env);
+  const retMonths = Math.min(
+    36,
+    Math.max(1, Math.round(Number(months ?? cfg.retention_months) || DEFAULT_RETENTION_MONTHS))
+  );
+
+  let deleted = 0;
+  if (mode === 'all') {
+    const beforeRow = await env.DB.prepare('SELECT COUNT(*) AS c FROM sources').first();
+    deleted = Number(beforeRow?.c || 0);
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM sources'),
+      env.DB.prepare('UPDATE custom_products SET discovered_count = 0'),
+    ]);
+  } else {
+    const cutoff = now - retMonths * 30 * DAY_MS;
+    const countRow = await env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM sources
+       WHERE COALESCE(NULLIF(verified_at, 0), NULLIF(discovered_at, 0), updated_at) < ?1`
+    )
+      .bind(cutoff)
+      .first();
+    deleted = Number(countRow?.c || 0);
+    if (deleted > 0) {
+      await env.DB.prepare(
+        `DELETE FROM sources
+         WHERE COALESCE(NULLIF(verified_at, 0), NULLIF(discovered_at, 0), updated_at) < ?1`
+      )
+        .bind(cutoff)
+        .run();
+      await env.DB.prepare(
+        `UPDATE custom_products SET
+         discovered_count = (SELECT COUNT(*) FROM sources WHERE state = 'ok' AND instr(matched_product, custom_products.name) > 0)`
+      ).run();
+    }
+  }
+
+  const state = await getState(env);
+  state.last_tick_at = now;
+  state.last_tick_summary =
+    mode === 'all'
+      ? `پاک‌سازی دستی کامل: ${deleted} منبع حذف شد`
+      : `پاک‌سازی منابع قدیمی‌تر از ${retMonths} ماه: ${deleted} منبع حذف شد`;
+  await setMetaJson(env, 'scanner_state', state, now);
+
+  return { ok: true, mode, retention_months: retMonths, deleted };
 }
 
 export function defaultState(now = Date.now(), refreshHours = 24) {
@@ -472,13 +542,27 @@ export async function runTick(
     }
   }
 
-  // Budget guard against Cloudflare D1 5M rows/day limit
-  const rowsReadToday = await getRowsReadFresh(env, { now });
-  if (rowsReadToday != null && rowsReadToday >= ROW_READ_SOFT_CAP) {
+  // Guard against all Cloudflare Free plan limits (D1 storage, rows read/written, Worker requests)
+  let guard = await checkFreeTierGuards(env, { now });
+  if (guard.blocked && guard.blocked_by === 'd1_storage' && cfg.auto_prune_enabled !== false) {
+    await env.DB.prepare(`DELETE FROM sources WHERE state IN ('rejected', 'unreachable')`).run();
+    await purgeSources(env, { mode: 'older', months: cfg.retention_months, now });
+    await refreshUsage(env, { now, force: true });
+    guard = await checkFreeTierGuards(env, { now, maxAgeMs: 0 });
+  }
+  if (guard.blocked) {
     state.last_tick_at = now;
-    state.last_tick_summary = `توقف موقت برای حفظ سقف رایگان D1 (${rowsReadToday.toLocaleString('en-US')} ردیف خوانده‌شده)`;
+    state.last_tick_summary = guard.reason;
     await setMetaJson(env, 'scanner_state', state, now);
-    return { idle: true, budget_paused: true, rows_read: rowsReadToday };
+    return {
+      idle: true,
+      budget_paused: true,
+      guard_blocked: true,
+      blocked_by: guard.blocked_by,
+      reason: guard.reason,
+      guards: guard.guards,
+      rows_read: guard.usage?.rows_read ?? null,
+    };
   }
 
   // Start a new cycle if idle and due (or manually forced when queue is empty)
@@ -1023,11 +1107,21 @@ export async function runTick(
     .bind(searchesRun > 0 ? now : 0)
     .run();
 
-  // Prune old rejected entries (> 7 days) occasionally to keep DB lean
+  // Prune old rejected entries (> 7 days) & sources older than configured retention_months (default 6 months)
   if (Math.random() < 0.08) {
     await env.DB.prepare(`DELETE FROM sources WHERE state = 'rejected' AND updated_at < ?1`)
-      .bind(now - 7 * 24 * 3600_000)
+      .bind(now - 7 * DAY_MS)
       .run();
+    if (cfg.auto_prune_enabled !== false) {
+      const retentionMonths = cfg.retention_months || DEFAULT_RETENTION_MONTHS;
+      const cutoff = now - retentionMonths * 30 * DAY_MS;
+      await env.DB.prepare(
+        `DELETE FROM sources
+         WHERE COALESCE(NULLIF(verified_at, 0), NULLIF(discovered_at, 0), updated_at) < ?1`
+      )
+        .bind(cutoff)
+        .run();
+    }
   }
 
   // Check if cycle is finished

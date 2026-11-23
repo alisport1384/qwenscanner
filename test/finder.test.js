@@ -37,7 +37,21 @@ function createMockD1() {
           for (const k of args) tables.meta.delete(k);
           return { results: [] };
         }
-        if (s.startsWith('DELETE FROM sources WHERE state =')) {
+        if (s.startsWith('PRAGMA page_count')) {
+          return { results: [{ page_count: 20 }] };
+        }
+        if (s.startsWith('PRAGMA page_size')) {
+          return { results: [{ page_size: 4096 }] };
+        }
+        if (s.startsWith('DELETE FROM sources WHERE state =') || s.startsWith('DELETE FROM sources WHERE state IN')) {
+          return { results: [] };
+        }
+        if (s.startsWith('DELETE FROM sources WHERE COALESCE')) {
+          const cutoff = Number(args[0]);
+          for (const [k, r] of tables.sources.entries()) {
+            const ts = r.verified_at || r.discovered_at || r.updated_at || 0;
+            if (ts < cutoff) tables.sources.delete(k);
+          }
           return { results: [] };
         }
         if (s === 'DELETE FROM sources') {
@@ -85,6 +99,14 @@ function createMockD1() {
         }
         if (s.startsWith('SELECT * FROM custom_products ORDER BY')) {
           return { results: [...tables.custom_products].sort((a, b) => b.id - a.id) };
+        }
+        if (s.startsWith('UPDATE custom_products SET discovered_count =')) {
+          for (const p of tables.custom_products) {
+            p.discovered_count = [...tables.sources.values()].filter(
+              (src) => src.state === 'ok' && src.matched_product.includes(p.name)
+            ).length;
+          }
+          return { results: [] };
         }
         if (s.startsWith('UPDATE custom_products SET')) {
           for (const p of tables.custom_products) {
@@ -174,6 +196,34 @@ function createMockD1() {
         }
         if (s === 'SELECT key FROM sources') {
           return { results: [...tables.sources.values()].map((r) => ({ key: r.key })) };
+        }
+        if (s === 'SELECT COUNT(*) AS c FROM sources') {
+          return { results: [{ c: tables.sources.size }] };
+        }
+        if (s.startsWith('SELECT COUNT(*) AS c FROM sources WHERE COALESCE')) {
+          const cutoff = Number(args[0]);
+          let c = 0;
+          for (const r of tables.sources.values()) {
+            const ts = r.verified_at || r.discovered_at || r.updated_at || 0;
+            if (ts < cutoff) c++;
+          }
+          return { results: [{ c }] };
+        }
+        if (s.startsWith('SELECT state, part, readable, COUNT(*) AS c')) {
+          const m = new Map();
+          for (const r of tables.sources.values()) {
+            const k = `${r.state}|${r.part}|${r.readable ? 1 : 0}`;
+            const cur = m.get(k) || { c: 0, custom_c: 0 };
+            cur.c++;
+            if (r.matched_product) cur.custom_c++;
+            m.set(k, cur);
+          }
+          return {
+            results: [...m.entries()].map(([k, v]) => {
+              const [state, part, readable] = k.split('|');
+              return { state, part: Number(part), readable: Number(readable), c: v.c, custom_c: v.custom_c };
+            }),
+          };
         }
         if (s.startsWith('SELECT state, part, COUNT(*) AS c FROM sources')) {
           const m = new Map();
@@ -363,19 +413,99 @@ assert.ok(payload.sources.some((s) => s.url === 'https://steel-zagros.ir/prices'
 assert.ok(payload.sources.some((s) => s.url === 'https://t.me/zagros_iron' && s.kind === 'telegram'));
 assert.ok(payload.sources.some((s) => s.url === 'https://eitaa.com/zagros_eitaa' && s.kind === 'eitaa'));
 
-// 4. /api/config updates refresh_hours
+// 4. /api/status is lightweight (no sources array), exposes limits/guards & default 6-month retention
+const resStatus = await handleApi(new Request('https://example.com/api/status'), env);
+const statusJson = await resStatus.json();
+assert.equal(statusJson.ok, true);
+assert.equal(statusJson.sources, undefined);
+assert.equal(statusJson.config.retention_months, 6);
+assert.equal(statusJson.guards.overall, 'ok');
+assert.ok(Array.isArray(statusJson.guards.items) && statusJson.guards.items.length >= 5);
+
+// 5. /api/config updates refresh_hours & retention_months
 const resCfg = await handleApi(
   new Request('https://example.com/api/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh_hours: 12, auto_enabled: true }),
+    body: JSON.stringify({ refresh_hours: 12, auto_enabled: true, retention_months: 3 }),
   }),
   env
 );
 const cfgJson = await resCfg.json();
 assert.equal(cfgJson.config.refresh_hours, 12);
+assert.equal(cfgJson.config.retention_months, 3);
 
-// 5. /api/reset wipes cleanly
+// 6. Guard blocks scan automatically when daily quota or storage threshold is reached
+const todayStr = new Date().toISOString().slice(0, 10);
+await env.DB.prepare(
+  `INSERT INTO meta (key, value, updated_at) VALUES (?1, ?2, ?3)
+   ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+)
+  .bind(
+    'usage_daily',
+    JSON.stringify({
+      date: todayStr,
+      updated_at: Date.now(),
+      d1_mb: 1.5,
+      rows_read: 4_300_000,
+      rows_written: 10_000,
+      requests: 500,
+    }),
+    Date.now()
+  )
+  .run();
+
+const guardedTick = await runTick(env, { now: Date.now(), forceTrigger: true, fetchFn: mockFetch });
+assert.equal(guardedTick.guard_blocked, true);
+assert.equal(guardedTick.blocked_by, 'd1_rows_read');
+
+// Clear simulated high usage
+await env.DB.prepare(
+  `INSERT INTO meta (key, value, updated_at) VALUES (?1, ?2, ?3)
+   ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+)
+  .bind(
+    'usage_daily',
+    JSON.stringify({
+      date: todayStr,
+      updated_at: Date.now(),
+      d1_mb: 1.5,
+      rows_read: 1000,
+      rows_written: 100,
+      requests: 50,
+    }),
+    Date.now()
+  )
+  .run();
+
+// 7. Manual purge (both older-than-N-months and all)
+const resPurgeOlder = await handleApi(
+  new Request('https://example.com/api/sources/purge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: 'older', months: 6 }),
+  }),
+  env
+);
+const purgeOlderJson = await resPurgeOlder.json();
+assert.equal(purgeOlderJson.ok, true);
+assert.equal(purgeOlderJson.retention_months, 6);
+assert.ok(purgeOlderJson.deleted >= 1);
+
+const resPurgeAll = await handleApi(
+  new Request('https://example.com/api/sources/purge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: 'all' }),
+  }),
+  env
+);
+const purgeAllJson = await resPurgeAll.json();
+assert.equal(purgeAllJson.ok, true);
+const afterPurgeAll = await (await handleApi(new Request('https://example.com/api/sources'), env)).json();
+assert.equal(afterPurgeAll.sources.length, 0);
+
+// 8. /api/reset wipes cleanly
 const resReset = await handleApi(new Request('https://example.com/api/reset', { method: 'POST' }), env);
 const resetJson = await resReset.json();
 assert.equal(resetJson.ok, true);

@@ -49,7 +49,8 @@ npx wrangler secret put CF_D1_ID
 | `src/verifier.js` | تحلیلگر سبک HTML بدون ساخت درخت DOM سنگین (زیر سقف ۱۰ میلی‌ثانیه CPU) و راستی‌آزمایی صفحهٔ عمومی |
 | `src/finder.js` | موتور چرخشی هوش جستجوگر ۲، مدیریت `cooldown` موتورها و دامنه‌ها، پیمایش عمق ۲، چرخه ۲۴ ساعته قابل تنظیم و صف محصولات سفارشی |
 | `src/usage.js` | پایش مصرف و سقف‌های پلن رایگان Cloudflare Workers و D1 |
-| `public/index.html` | پنل فارسی مدیریت، افزودن محصول، وضعیت موتورها، مصرف Cloudflare و فهرست ۳گانهٔ منابع |
+| `public/index.html` | پنل اصلی سبک (وضعیت چرخه، نگهبان لیمیت‌های کلادفلر، پاک‌سازی ۶ماهه/دستی و مدیریت محصولات) |
+| `public/sources.html` | صفحه اختصاصی و صفحه‌بندی‌شدهٔ فهرست منابع (`/sources`) برای سبک ماندن بارگذاری پنل اصلی |
 | `test/*.test.js` | ۵ سوئیت آزمون مستقل (`classify`, `banks`, `engines`, `verifier`, `finder`) |
 
 ---
@@ -118,7 +119,8 @@ FETCH_TIMEOUT_MS = "9000"
 | `GET` | `/api/sources` | خروجی رسمی `ironpin-sources-v1` برای اپلیکیشن IronPin (پشتیبانی از `?readable=1`, `?part=0\|1\|2`, `?product=...`) |
 | `GET` | `/api/status` | وضعیت کامل چرخه، شمارش ۳ لیست، وضعیت ۹ موتور و ۶ دایرکتوری، محصولات سفارشی و مصرف Cloudflare |
 | `POST` | `/api/scan/trigger` | اجرای فوری یک برش اسکن (یا شروع چرخه جدید در صورت بیکار بودن) |
-| `POST` | `/api/config` | تغییر بازه اسکن خودکار (`refresh_hours`: ۱ تا ۱۶۸، پیش‌فرض ۲۴) و فعال/غیرفعال‌سازی (`auto_enabled`) |
+| `POST` | `/api/config` | تغییر بازه اسکن خودکار (`refresh_hours`: ۱ تا ۱۶۸) و بازه نگهداری منابع (`retention_months`: ۱ تا ۳۶، پیش‌فرض ۶) |
+| `POST` | `/api/sources/purge` | پاک‌سازی دستی منابع (`{ mode: "older", months }` یا `{ mode: "all" }` برای حذف همهٔ منابع) |
 | `GET` | `/api/products` | فهرست محصولات سفارشی افزوده‌شده |
 | `POST` | `/api/products` | افزودن محصول سفارشی `{ name }` و صف‌کردن فوری پرس‌وجوهای کشف منبع |
 | `DELETE` | `/api/products?id=<id>` | حذف محصول سفارشی و پرس‌وجوهای در انتظار آن |

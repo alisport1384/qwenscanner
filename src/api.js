@@ -3,15 +3,17 @@
  */
 
 import {
+  DEFAULT_RETENTION_MONTHS,
   addCustomProduct,
   deleteCustomProduct,
   getConfig,
   getEngineStats,
   getState,
+  purgeSources,
   runTick,
   setConfig,
 } from './finder.js';
-import { getUsage, refreshUsage } from './usage.js';
+import { evaluateGuards, getUsage, refreshUsage } from './usage.js';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -73,11 +75,12 @@ export async function handleApi(request, env, ctx) {
     return json({ ok: true, mode: 'searcher2-only', version: '2.0.0' });
   }
 
-  // Clean endpoint consumed by IronPin2 in external mode
+  // Full sources list endpoint (consumed by IronPin2 & dedicated /sources.html page)
   if (path === '/api/sources' && request.method === 'GET') {
     const onlyReadable = url.searchParams.get('readable') === '1';
     const partParam = url.searchParams.get('part');
     const productParam = (url.searchParams.get('product') || '').trim();
+    const customOnly = url.searchParams.get('custom') === '1';
     const state = await getState(env);
 
     const where = ["state = 'ok'"];
@@ -86,6 +89,9 @@ export async function handleApi(request, env, ctx) {
     if (partParam !== null && ['0', '1', '2'].includes(partParam)) {
       binds.push(Number(partParam));
       where.push(`part = ?${binds.length}`);
+    }
+    if (customOnly) {
+      where.push("matched_product != ''");
     }
     if (productParam) {
       binds.push(productParam);
@@ -107,6 +113,7 @@ export async function handleApi(request, env, ctx) {
       sites: sources.filter((s) => s.part === 0).length,
       social: sources.filter((s) => s.part === 1).length,
       domestic: sources.filter((s) => s.part === 2).length,
+      custom: sources.filter((s) => Boolean(s.matched_product)).length,
     };
 
     return json({
@@ -119,41 +126,58 @@ export async function handleApi(request, env, ctx) {
     });
   }
 
+  // Lightweight status endpoint (NO heavy sources array so dashboard loads instantly)
   if (path === '/api/status' && request.method === 'GET') {
     const now = Date.now();
-    const [config, state, enginesMap, usage, aggRows, taskCountRow, productsRes, okSourcesRes] =
+    const config = await getConfig(env);
+    const retentionMonths = config.retention_months || DEFAULT_RETENTION_MONTHS;
+    const retentionCutoff = now - retentionMonths * 30 * 24 * 3600_000;
+
+    const [state, enginesMap, usage, aggRows, taskCountRow, productsRes, expiredRow] =
       await Promise.all([
-        getConfig(env),
         getState(env),
         getEngineStats(env),
         getUsage(env, { now }),
-        env.DB.prepare(`SELECT state, part, COUNT(*) AS c FROM sources GROUP BY state, part`).all(),
+        env.DB.prepare(
+          `SELECT state, part, readable, COUNT(*) AS c,
+                  SUM(CASE WHEN matched_product != '' THEN 1 ELSE 0 END) AS custom_c
+           FROM sources
+           GROUP BY state, part, readable`
+        ).all(),
         env.DB.prepare(`SELECT COUNT(*) AS c FROM search_tasks WHERE status = 'pending'`).first(),
         env.DB.prepare(`SELECT * FROM custom_products ORDER BY id DESC`).all(),
         env.DB.prepare(
-          `SELECT key, url, kind, part, readable, host, handle, name, title, site_name,
-                  city, contact, has_table, matched_product, discovered_from, provider, note, verified_at
-           FROM sources WHERE state = 'ok' ORDER BY verified_at DESC LIMIT 600`
-        ).all(),
+          `SELECT COUNT(*) AS c FROM sources
+           WHERE COALESCE(NULLIF(verified_at, 0), NULLIF(discovered_at, 0), updated_at) < ?1`
+        )
+          .bind(retentionCutoff)
+          .first(),
       ]);
 
     const counts = {
+      total_rows: 0,
       ok_total: 0,
       ok_readable: 0,
       ok_sites: 0,
       ok_social: 0,
       ok_domestic: 0,
+      ok_custom_sources: 0,
       pending_verify: 0,
       rejected: 0,
       unreachable: 0,
+      expired_retention: Number(expiredRow?.c || 0),
       pending_tasks: Number(taskCountRow?.c || 0),
       custom_products: (productsRes.results || []).length,
     };
 
     for (const r of aggRows.results || []) {
       const c = Number(r.c || 0);
+      const customC = Number(r.custom_c || 0);
+      counts.total_rows += c;
       if (r.state === 'ok') {
         counts.ok_total += c;
+        if (Number(r.readable) === 1) counts.ok_readable += c;
+        counts.ok_custom_sources += customC;
         if (r.part === 0) counts.ok_sites += c;
         else if (r.part === 1) counts.ok_social += c;
         else if (r.part === 2) counts.ok_domestic += c;
@@ -166,9 +190,7 @@ export async function handleApi(request, env, ctx) {
       }
     }
 
-    const sources = (okSourcesRes.results || []).map(formatSourceRow);
-    counts.ok_readable = sources.filter((s) => s.readable).length;
-
+    const guards = usage.guards || evaluateGuards(usage, env);
     const engines = Object.values(enginesMap).map((e) => ({
       ...e,
       cooldown_remaining_sec:
@@ -184,7 +206,7 @@ export async function handleApi(request, env, ctx) {
       engines,
       products: productsRes.results || [],
       usage,
-      sources,
+      guards,
     });
   }
 
@@ -198,6 +220,16 @@ export async function handleApi(request, env, ctx) {
     const config = await setConfig(env, body, Date.now());
     const state = await getState(env);
     return json({ ok: true, config, state });
+  }
+
+  // Manual source purge: either 'older' (default 6 months, configurable) or 'all'
+  if (path === '/api/sources/purge' && request.method === 'POST') {
+    const body = await readBody(request);
+    const mode = body.mode === 'all' ? 'all' : 'older';
+    const months = body.months != null ? Number(body.months) : undefined;
+    const result = await purgeSources(env, { mode, months, now: Date.now() });
+    const usage = await refreshUsage(env, { now: Date.now(), force: true });
+    return json({ ...result, usage, guards: usage.guards });
   }
 
   if (path === '/api/products' && request.method === 'GET') {
@@ -232,7 +264,7 @@ export async function handleApi(request, env, ctx) {
 
   if (path === '/api/usage/refresh' && request.method === 'POST') {
     const usage = await refreshUsage(env, { now: Date.now(), force: true });
-    return json({ ok: true, usage });
+    return json({ ok: true, usage, guards: usage.guards });
   }
 
   if (path === '/api/reset' && request.method === 'POST') {
