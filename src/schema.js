@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS batches (
 CREATE TABLE IF NOT EXISTS scans (
   id            TEXT PRIMARY KEY,
   batch_id      TEXT,
+  token         TEXT,
   topic         TEXT NOT NULL,
   status        TEXT NOT NULL DEFAULT 'queued',
   phase         TEXT NOT NULL DEFAULT 'search',
@@ -81,6 +82,7 @@ CREATE INDEX IF NOT EXISTS idx_sources_url ON sources (url);
 // One-shot migration for DBs created before batches / sources existed
 const MIGRATIONS = [
   'ALTER TABLE scans ADD COLUMN batch_id TEXT',
+  'ALTER TABLE scans ADD COLUMN token TEXT',
   'CREATE INDEX IF NOT EXISTS idx_scans_batch ON scans (batch_id)',
   'CREATE TABLE IF NOT EXISTS batches (id TEXT PRIMARY KEY, title TEXT, topics_count INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)',
   `CREATE TABLE IF NOT EXISTS sources (
