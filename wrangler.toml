@@ -20,9 +20,9 @@ crons = ["* * * * *", "*/5 * * * *", "0 */6 * * *"]
 
 [vars]
 MAX_PAGES_PER_SCAN = "12"
-PAGES_PER_TICK = "5"
+PAGES_PER_TICK = "8"
 SEARCH_QUERY_LIMIT = "3"
 # نگهبان اسکنر — حداقل مصرف
 TICK_BUDGET_MS = "18000"        # سقف دیواری هر اجرای cron (CPU/wall)
-DAILY_FETCH_LIMIT = "700"       # سقف درخواست خروجی روزانه (صفحه/تصویر)
-IMAGE_EXTRACT_LIMIT = "60"      # سقف فراخوانی روزانهٔ استخراج تصویر
+DAILY_FETCH_LIMIT = "3000"      # سقف درخواست خروجی روزانه (صفحه/تصویر) — هم‌تراز اسکنر داخلی
+IMAGE_EXTRACT_LIMIT = "200"     # سقف فراخوانی روزانهٔ استخراج تصویر — هم‌تراز اسکنر داخلی

@@ -1699,6 +1699,18 @@ export const PRODUCT_PAGES = [
   "url": "https://ahanmelal.com/steel-sheet/steel-corrugated-sheet-price/mobarakeh-ribbed-sheet",
   "category": "ورق / تسمه / زیرنوع و برند",
   "kind": "product_page"
+ },
+ {
+  "name": "آهن جم • قیمت امروز آهن",
+  "url": "https://ahanjam.com/",
+  "category": "عمومی / قیمت روز",
+  "kind": "product_page"
+ },
+ {
+  "name": "آی‌قاریه • قیمت آهن امروز",
+  "url": "https://ayeghariya.com/قیمت-آهن-امروز/",
+  "category": "عمومی / قیمت روز",
+  "kind": "product_page"
  }
 ];
 export const TAXONOMY = [

@@ -10,6 +10,7 @@
 import { searchWeb, diverse } from './engines.js';
 import { extractMainText, extractTitle, detectLang, normalizeUrl, domainOf, telegramText } from './extract.js';
 import { resolvePageCity } from './city.js';
+import { classifyLink } from './finder.js';
 import { extractQuotesFromPage, extractTableQuotes, storeQuotes } from './ironpin.js';
 import { extractFromPage } from './image_extract.js';
 
@@ -34,17 +35,22 @@ function queriesForScan(scan, limit) {
   return [...new Set(qs)].slice(0, limit);
 }
 
-async function fetchPageText(url) {
+const UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+/** Reader proxy for pages that block foreign datacenter IPs (IR sites & WAF). */
+const JINA_READER = 'https://r.jina.ai/';
+const JINA_BUDGET_MS = MAX_FETCH_MS + 8000;
+
+async function rawFetch(url, timeoutMs) {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), MAX_FETCH_MS);
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       signal: ctrl.signal,
       redirect: 'follow',
       cf: { cacheTtl: 0 },
       headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'User-Agent': UA,
         Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'fa,en;q=0.8',
       },
@@ -60,6 +66,63 @@ async function fetchPageText(url) {
   } finally {
     clearTimeout(t);
   }
+}
+
+const isUseful = (r) => !!(r && !r.error && r.html && r.html.length >= 1000);
+
+/**
+ * Direct fetch first; on any failure, retry ONCE through the Jina reader
+ * proxy (`x-return-format: html` returns the live page's HTML untouched —
+ * the table reader and text engine work unchanged). Pages that serve
+ * Cloudflare/foreign datacenter IPs nothing are common in Iran; this makes
+ * the external scanner behave like the internal one for those sources.
+ */
+async function fetchPageText(url) {
+  const direct = await rawFetch(url, MAX_FETCH_MS);
+  if (isUseful(direct)) return { ...direct, via: 'direct' };
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), JINA_BUDGET_MS);
+    const res = await fetch(JINA_READER + url, {
+      signal: ctrl.signal,
+      redirect: 'follow',
+      cf: { cacheTtl: 0 },
+      headers: {
+        'User-Agent': UA,
+        'x-return-format': 'html',
+        'Accept-Language': 'fa,en;q=0.8',
+      },
+    });
+    clearTimeout(t);
+    const ct = (res.headers.get('content-type') || '').toLowerCase();
+    let html = await res.text();
+    if (html.length > HTML_CAP) html = html.slice(0, HTML_CAP);
+    if (!res.ok || (ct && !/html|text|xml|json/.test(ct)) || html.length < 1000) {
+      return { ...direct, via: 'direct-failed' };
+    }
+    return { html, status: res.status, via: 'jina-reader' };
+  } catch {
+    return { ...direct, via: 'direct-failed' };
+  }
+}
+
+/** Telegram channel links written in a page — the internal Searcher-2 harvests these
+ *  (`offerLinks`); without them the scanner never finds seller channels from sites. */
+const TG_LINK_RE = /https?:\/\/(?:t\.me|telegram\.me)\/(?:s\/)?([A-Za-z0-9_]{3,64})\/?/gi;
+const TG_RESERVED = new Set(['share', 'joinchat', 'addstickers', 'addtheme', 'iv', 'c', 'proxy', 'socks', 'r', 'blog', 'apps', 'faq']);
+export function harvestTelegramLinks(html) {
+  const out = [];
+  const seen = new Set();
+  let m;
+  while ((m = TG_LINK_RE.exec(String(html || '')))) {
+    const name = m[1];
+    if (seen.has(name) || TG_RESERVED.has(name.toLowerCase())) continue;
+    seen.add(name);
+    const link = classifyLink(`https://t.me/s/${name}`);
+    if (link && link.readable) out.push(link);
+    if (out.length >= 20) break;
+  }
+  return out;
 }
 
 /** Phase SEARCH: expand queries → engines → diverse pages → insert queue. */
@@ -215,7 +278,7 @@ export async function runFetchPhase(scan, env, opts = {}) {
     if (g && g.expired()) break;
     const fetchedFor = results.get(page.id);
     if (!fetchedFor) continue; // beyond budget — handled by the unprocessed reset
-    const { html, status: httpStatus, error: fetchErr } = fetchedFor;
+    const { html, status: httpStatus, error: fetchErr, via } = fetchedFor;
 
     if (fetchErr || !html) {
       const next = (page.attempts || 1) >= 3 ? 'failed' : 'pending';
@@ -285,6 +348,26 @@ export async function runFetchPhase(scan, env, opts = {}) {
     }
 
     const allQuotes = [...tableQuotes, ...quotes, ...imgQuotes];
+    if (via === 'jina-reader') {
+      for (const q of allQuotes) {
+        q.details = q.details || {};
+        if (!q.details['مسیر دریافت']) q.details['مسیر دریافت'] = 'پروکسی خوانش (jina-reader)';
+      }
+    }
+    try {
+      const tg = harvestTelegramLinks(html);
+      if (tg.length) {
+        const stmts = [];
+        for (const link of tg) {
+          stmts.push(env.DB.prepare(
+            `INSERT INTO sources (url, domain, kind, part, name, key, readable, origin, state, created_at, last_checked_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'harvest', 'new', ?8, ?8)
+             ON CONFLICT(key) DO NOTHING`
+          ).bind(link.url, link.host || '', link.kind, link.part ?? 1, '', link.key, link.readable ? 1 : 0, nowTs));
+        }
+        await env.DB.batch(stmts);
+      }
+    } catch (e) { /* harvest is best-effort — never blocks storing quotes */ }
     if (pageSellerCity !== 'نامشخص') {
       for (const q of allQuotes) {
         if (q.sellerCity === 'نامشخص') {
