@@ -8,7 +8,7 @@ import {
   buildIronpinExport, storeQuotes,
 } from '../src/ironpin.js';
 
-const KEYS = ['id', 'endpoint', 'seller', 'sellerCity', 'title', 'category', 'material', 'brand', 'loading', 'loadingCity', 'unit', 'tax', 'currency', 'terms', 'sourceUrl', 'sourceDateRaw', 'status', 'amount', 'pieceKg', 'lengthM', 'areaM2', 'fetchedAt', 'size', 'thickness', 'dimensions', 'grade', 'details'];
+const KEYS = ['id', 'endpoint', 'seller', 'sellerCity', 'title', 'category', 'material', 'brand', 'loading', 'loadingCity', 'unit', 'tax', 'currency', 'terms', 'sourceUrl', 'sourceDateRaw', 'status', 'amount', 'pieceKg', 'lengthM', 'areaM2', 'kgm', 'fetchedAt', 'size', 'thickness', 'dimensions', 'grade', 'details'];
 
 let failed = 0;
 function ok(name, fn) { try { fn(); console.log('✓', name); } catch (e) { failed++; console.log('✗', name, e.message); } }

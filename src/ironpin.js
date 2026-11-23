@@ -150,6 +150,8 @@ export function extractQuotesFromPage(text, meta) {
     q.pieceKg = q.pieceKg != null ? q.pieceKg : conv.pieceKg;
     q.lengthM = q.lengthM != null ? q.lengthM : conv.lengthM;
     q.areaM2 = q.areaM2 != null ? q.areaM2 : conv.areaM2;
+    // kg per metre: lets the app convert m-priced rows to kg and back.
+    q.kgm = q.kgm != null ? q.kgm : conv.kgm;
     if (conv.basis) q.details['مبنای تبدیل واحد'] = conv.basis;
     // Rial → Toman conversion recorded for honesty.
     if (q.currency === 'ریال' && q.amount != null) {
