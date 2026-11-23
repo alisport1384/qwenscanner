@@ -328,16 +328,24 @@ export async function storeQuotes(db, scanId, quotes, now = Date.now()) {
 }
 
 /** GET /api/ironpin — same-day deduped, freshest window, full snapshot. */
+/** Historical rows eligible for the full snapshot: last 30 days of verification. */
+const SNAPSHOT_WINDOW_MS = 30 * 24 * 3600_000;
+/** Full snapshot serves up to this many (identity, day) rows — parity with the internal server. */
+const SNAPSHOT_CAP = 12000;
+
 export async function buildIronpinExport(db, { since = 0, limit = 1000 } = {}) {
   const sinceN = Number(since) > 0 ? Number(since) : 0;
   const inc = sinceN > 0;
-  // Full snapshot: take the FRESHEST `limit` rows, not the oldest.
+  const cutoff = Date.now() - SNAPSHOT_WINDOW_MS;
+  // Full snapshot: the fresh 30-day window (deduped per identity+day below),
+  // not just the newest `limit` rows — the internal server shows a 30-day
+  // history (~10k candidates) and the feed should carry the same scope.
   const sql = inc
     ? 'SELECT quote_json, source_last_verified_at FROM ironpin_quotes WHERE source_last_verified_at > ?1 ORDER BY source_last_verified_at, rowid LIMIT ?2'
-    : 'SELECT quote_json, source_last_verified_at FROM ironpin_quotes ORDER BY rowid DESC LIMIT ?1';
+    : 'SELECT quote_json, source_last_verified_at FROM ironpin_quotes WHERE source_last_verified_at > ?1 ORDER BY source_last_verified_at, rowid LIMIT ?2';
   const rows = inc
     ? await db.prepare(sql).bind(sinceN, limit).all()
-    : await db.prepare(sql).bind(limit).all();
+    : await db.prepare(sql).bind(cutoff, SNAPSHOT_CAP).all();
   const best = new Map();
   let cursor = sinceN;
   for (const r of rows.results || []) {
@@ -352,7 +360,7 @@ export async function buildIronpinExport(db, { since = 0, limit = 1000 } = {}) {
     if (!prev || (prev._t || 0) < t) best.set(key, { ...q, _t: t });
   }
   let quotes = [...best.values()].map(({ _t, ...q }) => q);
-  if (quotes.length > limit && !inc) quotes = quotes.slice(quotes.length - limit);
+  if (quotes.length > SNAPSHOT_CAP && !inc) quotes = quotes.slice(quotes.length - SNAPSHOT_CAP);
   return {
     format: 'ironpin-quotes-v1',
     generated_at: new Date().toISOString(),

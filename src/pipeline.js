@@ -9,6 +9,7 @@
 
 import { searchWeb, diverse } from './engines.js';
 import { extractMainText, extractTitle, detectLang, normalizeUrl, domainOf, telegramText } from './extract.js';
+import { resolvePageCity } from './city.js';
 import { extractQuotesFromPage, extractTableQuotes, storeQuotes } from './ironpin.js';
 import { extractFromPage } from './image_extract.js';
 
@@ -194,12 +195,27 @@ export async function runFetchPhase(scan, env, opts = {}) {
   let deltaDone = 0;
   let deltaQuotes = 0;
 
+  // Guardian-gate the batch first: pages beyond today's fetch budget stay
+  // 'claimed' and are returned to pending by the reset below — never half-fetched.
+  const allowed = [];
   for (const page of pages) {
-    if (g && g.expired()) break;
     if (g && !g.allowFetch(1)) break;
     if (g) g.spendFetch(1);
-    processed.add(page.id);
-    const { html, status: httpStatus, error: fetchErr } = await fetchPageText(page.url);
+    allowed.push(page);
+  }
+  // Fetch in parallel (network-bound) — the wall-clock budget of a cron tick
+  // was the reason scans took so long. Extraction stays sequential/CPU-bound.
+  const fetched = await Promise.all(allowed.map((p) => {
+    processed.add(p.id);
+    return fetchPageText(p.url).catch((e) => ({ html: null, status: 0, error: String(e?.message || e || 'fetch_failed') }));
+  }));
+  const results = new Map(allowed.map((p, i) => [p.id, fetched[i]]));
+
+  for (const page of pages) {
+    if (g && g.expired()) break;
+    const fetchedFor = results.get(page.id);
+    if (!fetchedFor) continue; // beyond budget — handled by the unprocessed reset
+    const { html, status: httpStatus, error: fetchErr } = fetchedFor;
 
     if (fetchErr || !html) {
       const next = (page.attempts || 1) >= 3 ? 'failed' : 'pending';
@@ -224,13 +240,15 @@ export async function runFetchPhase(scan, env, opts = {}) {
     }
 
     const lang = detectLang(text);
+    const pageCity = resolvePageCity(text);
+    const pageSellerCity = pageCity.city || 'نامشخص';
 
     // Price rows from the page price TABLES (div-grid/tables) — mirror of
     // IronPin's PublicTables reader; the richest source for price-list pages.
     const tableQuotes = extractTableQuotes(html, {
       endpoint: 'qwen-scanner',
       seller: title || page.domain,
-      sellerCity: 'نامشخص',
+      sellerCity: pageSellerCity,
       sourceUrl: page.url,
       fetchedAt: nowTs,
       category: scan.topic || 'عمومی',
@@ -243,7 +261,7 @@ export async function runFetchPhase(scan, env, opts = {}) {
       seller: title || page.domain,
       sourceUrl: page.url,
       fetchedAt: nowTs,
-      sellerCity: 'نامشخص',
+      sellerCity: pageSellerCity,
       defaultCurrency: 'نامشخص',
     });
 
@@ -267,6 +285,16 @@ export async function runFetchPhase(scan, env, opts = {}) {
     }
 
     const allQuotes = [...tableQuotes, ...quotes, ...imgQuotes];
+    if (pageSellerCity !== 'نامشخص') {
+      for (const q of allQuotes) {
+        if (q.sellerCity === 'نامشخص') {
+          q.sellerCity = pageSellerCity;
+        }
+        q.details = q.details || {};
+        if (!q.details['مبنای شهر']) q.details['مبنای شهر'] = pageCity.basis;
+        if (pageCity.conflict && !q.details['تعارض شهر']) q.details['تعارض شهر'] = pageCity.conflict;
+      }
+    }
     if (allQuotes.length === 0) {
       await pageDoneStmt.bind('skipped', httpStatus, 'no_quotes', text.length, nowTs, title, page.id).run();
       deltaDone++;

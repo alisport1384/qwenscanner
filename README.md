@@ -26,7 +26,7 @@ Cloudflare Workers + D1. بدون حضور کاربر کار می‌کند: جس
 |------|-------|
 | [/report/all](https://qwen.alisport0.qzz.io/report/all) | گزارش‌های اسکنر (زنده) |
 | [/api/report/all](https://qwen.alisport0.qzz.io/api/report/all) | JSON گزارش‌ها |
-| [/api/ironpin](https://qwen.alisport0.qzz.io/api/ironpin) | ردیف‌های Quote (IronPin)؛ `?since=<ms>` = حالت incremental با `cursor` |
+| [/api/ironpin](https://qwen.alisport0.qzz.io/api/ironpin) | ردیف‌های Quote (IronPin)؛ اسنپ‌شات کامل = پنجرهٔ ۳۰ روز اخیر (dedup هویت+روز، سقف ۱۲۰۰۰)؛ `?since=<ms>` = حالت incremental با `cursor` |
 | [/report/sources](https://qwen.alisport0.qzz.io/report/sources) | فهرست منابع (IronPin) |
 | [/api/sources](https://qwen.alisport0.qzz.io/api/sources) | JSON منابع |
 | [/api/usage](https://qwen.alisport0.qzz.io/api/usage) | مصرف روزانه CF/D1 |
@@ -55,3 +55,5 @@ npx wrangler deploy
 - **حذف قیمت فقط دستی**
 - منبع مرده (`state=dead`) دوباره اسکن نمی‌شود
 - `/report/all` با هر افزوده جدید خودکار به‌روز است
+- شهر فروشنده از شاهد مکتوب صفحه (تلفن ثابت > آدرس/تحویل > نقشه) تشخیص داده می‌شود؛ نام کارخانه شهر نمی‌سازد
+- تاریخ منبع در لحظه سرویس مرمت می‌شود؛ ردیف دارای تاریخ نامعتبر هرگز خارج نمی‌شود

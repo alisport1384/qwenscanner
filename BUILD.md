@@ -142,12 +142,13 @@ AUTH_TOKEN = "یک رمز دلخواه"
 
 ```toml
 [triggers]
-crons = ["*/5 * * * *", "0 */6 * * *"]
+crons = ["* * * * *", "*/5 * * * *", "0 */6 * * *"]
 ```
 
 | زمان‌بندی | کار |
 |-----------|-----|
-| هر ۵ دقیقه | seed آیرون پین (یک‌بار) + نگهداری قیمت + کشف منبع (جستجوگر ۲) + پیش‌بردن صف جستجو/دریافت |
+| هر ۱ دقیقه | `* * * * *` — processIronpinBatch (Materialize) |
+| هر ۵ دقیقه | `*/5 * * * *` — seed آیرون پین (یک‌بار) + نگهداری قیمت + کشف منبع (جستجوگر ۲) + پیش‌بردن صف جستجو/دریافت (fetch موازی) |
 | هر ۶ ساعت | requeue اسکن‌های خودکار برای اسکن مجدد |
 
 ### نگهداری داده قیمت (D1 Free)
@@ -238,7 +239,7 @@ curl -X POST "https://<worker>/api/dev/tick"
 | DELETE | `/api/batches/:id` | حذف لیست + همه فرزندان |
 | GET | `/api/report/:id` | JSON اسکن تکی |
 | GET | `/api/report/all` | JSON همه اسکن‌ها |
-| GET | `/api/ironpin` | خروجی ردیف‌های Quote (IronPin)؛ `?since=<ms>` = incremental |
+| GET | `/api/ironpin` | خروجی ردیف‌های Quote (IronPin)؛ اسنپ‌شات کامل = پنجرهٔ ۳۰ روز (dedup روزانه، سقف ۱۲۰۰۰)؛ `?since=<ms>` = incremental |
 | GET | `/api/stats` | آمار داشبورد |
 | GET | `/api/health` | سلامت D1 |
 | GET | `/api/sources` | JSON منابع برای آیرون پین |
@@ -260,11 +261,11 @@ curl -X POST "https://<worker>/api/dev/tick"
 ## ۸. تست‌ها
 
 ```bash
-node test/smoke.js
+npm test
 ```
 
-- `test/smoke.js` — استخراج ردیف قیمت، تبدیل ریال → تومان، دروازه حذف
-  زباله، دروازه مبالغ غیرعادی، تبدیل واحد هندسی
+- `npm test` — ۷ سوئیت: smoke · finder · ironpin · guardian · pipeline ·
+  table_reader · city (فرمت خروجی، تبدیل ریال→تومان، دروازه‌های فید، شهر از شاهد مکتوب)
 
 dry-run استقرار:
 
@@ -323,7 +324,7 @@ production که cron صدا می‌خواند.
 پنل (public/index.html)
     │  fetch JSON
     ▼
-Worker API (src/api.js)  ◄──── Cron */5 و 0*/6 (src/pipeline.js)
+Worker API (src/api.js)  ◄──── Cron * هر دقیقه / */5 / 0*/6 (src/pipeline.js)
     │
     ▼
 D1: batches → scans → pages → ironpin_quotes

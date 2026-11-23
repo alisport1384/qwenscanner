@@ -63,8 +63,9 @@ ok('buildIronpinExport full snapshot shape', async () => {
       return {
         bind() { return this; },
         async all() {
-          if (/FROM ironpin_quotes ORDER BY rowid/.test(s)) {
-            return { results: [{ quote_json: JSON.stringify(quote), source_last_verified_at: 1234567890 }] };
+          if (/FROM ironpin_quotes WHERE source_last_verified_at/.test(s)) {
+            // full snapshot: rows verified within the last 30 days are in-window
+            return { results: [{ quote_json: JSON.stringify(quote), source_last_verified_at: Date.now() }] };
           }
           return { results: [] };
         },
@@ -74,7 +75,7 @@ ok('buildIronpinExport full snapshot shape', async () => {
   const out = await buildIronpinExport(db);
   assert.equal(out.format, 'ironpin-quotes-v1');
   assert.equal(out.count, 1);
-  assert.equal(out.cursor, 1234567890);
+  assert.ok(out.cursor > 0);
   assert.equal(out.complete, true);
   assert.equal(out.quotes[0].amount, 1200000);
 });

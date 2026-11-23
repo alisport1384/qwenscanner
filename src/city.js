@@ -354,16 +354,36 @@ const DELIVERY_CONTEXT_RE = /(?:انبار|بارگیری|تحویل|دفتر|ف
 export function explicitCityIn(text) {
   const s = latin(text);
   let m;
-  let best = '';
   CITY_TEXT_RE.lastIndex = 0;
   while ((m = CITY_TEXT_RE.exec(s))) {
     const before = s.substring(0, m.index);
+    // Only a city written next to a place word (انبار/تحویل/دفتر…) is an
+    // offer location. A bare factory/brand name («میلگرد میانه») is NOT one.
     if (DELIVERY_CONTEXT_RE.test(before) && PLACE_CONTEXT_RE.test(before.slice(-40))) {
       return m[0];
     }
-    if (!best) best = m[0];
   }
-  return best;
+  return '';
+}
+
+/**
+ * City of the PAGE/seller as a whole (not of one row): strongest written
+ * witnesses only — landline area code first (unambiguous), then an
+ * address/delivery line, then a maps link. A brand/factory name alone never
+ * names a seller city. Returns { city, basis, conflict }.
+ */
+export function resolvePageCity(text) {
+  const t = latin(text || '');
+  const landline = landlineCityIn(t);
+  const declared = explicitCityIn(t);
+  const maps = mapsCityIn(t);
+  if (landline) {
+    const conflict = declared && declared !== landline ? `متن آدرس/تحویل: ${declared}` : '';
+    return { city: landline, basis: 'پیش‌شماره تلفن ثابت (متن صفحه)', conflict };
+  }
+  if (declared) return { city: declared, basis: 'متن آدرس/تحویل (متن صفحه)', conflict: '' };
+  if (maps) return { city: maps, basis: 'لینک نقشه', conflict: '' };
+  return { city: 'نامشخص', basis: '', conflict: '' };
 }
 
 /**
